@@ -1,0 +1,1571 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Motoko-Retia</title>
+<meta name="description" content="Motoko-Retia — making the unseen visible. An interactive physarum organism driven by Wi-Fi packet entropy: drop a .pcap and your radio environment plays the piece. Built on Bleuje's interactive-physarum, parameters from mxsage's 36 Points.">
+<meta property="og:title" content="Motoko-Retia">
+<meta property="og:description" content="Making the unseen visible — millions of agents follow trails while packets from your environment perturb the organism. Drop a .pcap and watch it come alive.">
+<meta property="og:type" content="website">
+<!--
+  Browser (WebGL2) recreation of "interactive-physarum" by Etienne Jacob (Bleuje)
+  https://github.com/Bleuje/interactive-physarum
+  Simulation parameters from mxsage's "36 Points" (https://www.sagejenson.com/36points/)
+  Original license: CC BY-NC-SA 3.0 — this derivative work keeps the same license.
+  Port notes: the original openFrameworks compute shaders (move / deposit / diffusion)
+  are translated to WebGL2 fragment shaders. Atomic per-pixel particle counters are
+  replaced by additive blending of GL_POINTS into a half-float texture.
+-->
+<style>
+  html,body{margin:0;padding:0;height:100%;background:#000;overflow:hidden;
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-user-select:none;user-select:none}
+  #c,#ov{position:fixed;inset:0;width:100vw;height:100vh;display:block}
+  #ov{pointer-events:none}
+  #ui{position:fixed;top:10px;left:10px;display:flex;flex-direction:column;gap:6px;
+    transition:opacity .5s;z-index:10;max-width:min(430px,92vw)}
+  .idle #ui{opacity:0;pointer-events:none}
+  .idle #credit{opacity:.3}
+  .panel{background:rgba(10,12,18,.62);backdrop-filter:blur(6px);border:1px solid rgba(255,255,255,.09);
+    border-radius:10px;padding:7px 9px;color:#ddd;font-size:13px}
+  .ptrow{display:flex;align-items:center;gap:6px;cursor:pointer;padding:2px 4px;border-radius:6px;white-space:nowrap}
+  .ptrow.sel{background:rgba(255,255,255,.10)}
+  .ptrow .tag{font-size:10px;letter-spacing:.12em;opacity:.6;width:78px}
+  .ptrow b{font-weight:600;color:#fff}
+  .ptrow .nick{opacity:.55;font-size:11px;overflow:hidden;text-overflow:ellipsis}
+  .arr{cursor:pointer;border:0;background:rgba(255,255,255,.10);color:#eee;border-radius:5px;
+    width:22px;height:22px;line-height:20px;font-size:13px;flex:none}
+  .arr:hover{background:rgba(255,255,255,.25)}
+  #tools{display:flex;flex-wrap:wrap;gap:5px}
+  .btn{cursor:pointer;border:0;background:rgba(255,255,255,.10);color:#eee;border-radius:7px;
+    padding:5px 9px;font-size:12.5px;white-space:nowrap}
+  .btn:hover{background:rgba(255,255,255,.25)}
+  .btn.on{background:rgba(120,180,255,.35)}
+  select{background:rgba(255,255,255,.1);color:#eee;border:1px solid rgba(255,255,255,.15);
+    border-radius:7px;padding:4px 6px;font-size:12.5px}
+  select option{background:#14161c}
+  #stats{opacity:.65;font-size:11.5px;display:flex;gap:12px}
+  #credit{position:fixed;left:10px;bottom:8px;color:#fff;opacity:.55;font-size:11px;z-index:10;
+    background:rgba(0,0,0,.4);padding:4px 8px;border-radius:6px;transition:opacity .5s}
+  #credit a{color:#9cf;text-decoration:none}
+  #toast{position:fixed;top:14px;left:50%;transform:translateX(-50%);background:rgba(20,24,34,.92);
+    color:#fff;padding:8px 16px;border-radius:8px;font-size:13px;z-index:30;opacity:0;
+    transition:opacity .3s;pointer-events:none;border:1px solid rgba(255,255,255,.15)}
+  #help{position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:20;display:none;
+    overflow:auto;color:#ddd}
+  #help .inner{max-width:640px;margin:5vh auto;background:rgba(16,18,26,.96);border:1px solid rgba(255,255,255,.12);
+    border-radius:14px;padding:22px 26px;font-size:13.5px;line-height:1.55}
+  #help h2{margin:2px 0 10px;color:#fff;font-size:18px}
+  #help h3{margin:16px 0 4px;color:#fff;font-size:14px}
+  #help td{padding:1.5px 14px 1.5px 0;vertical-align:top}
+  #help td:first-child{color:#9cf;white-space:nowrap;font-family:ui-monospace,monospace;font-size:12.5px}
+  #help a{color:#9cf}
+  #fatal{position:fixed;inset:0;display:none;place-items:center;z-index:40;background:#000;color:#eee}
+  #fatal .inner{max-width:560px;padding:30px;font-size:14.5px;line-height:1.6}
+  kbd{background:rgba(255,255,255,.12);border-radius:4px;padding:0 5px;font-family:ui-monospace,monospace}
+  .prow{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:5px;font-size:12px}
+  .prow label{display:flex;align-items:center;gap:5px;opacity:.85}
+  #pcapProg{height:5px;background:rgba(255,255,255,.12);border-radius:3px;cursor:pointer;margin-top:7px}
+  #pcapProgFill{height:100%;width:0%;background:rgba(120,180,255,.85);border-radius:3px}
+  #pcapFeed{opacity:.75;font-size:11px;margin-top:4px;min-height:13px;font-family:ui-monospace,monospace}
+  #pcapStats{opacity:.65;font-size:11px;margin-top:3px}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<canvas id="ov"></canvas>
+
+<div id="ui">
+  <div class="panel" id="pointsPanel">
+    <div class="ptrow sel" id="pt0">
+      <span class="tag">PEN</span>
+      <button class="arr" data-a="p0-">‹</button><b id="pt0name">V</b><button class="arr" data-a="p0+">›</button>
+      <span class="nick" id="pt0nick"></span>
+    </div>
+    <div class="ptrow" id="pt1">
+      <span class="tag">BACKGROUND</span>
+      <button class="arr" data-a="p1-">‹</button><b id="pt1name">V</b><button class="arr" data-a="p1+">›</button>
+      <span class="nick" id="pt1nick"></span>
+    </div>
+  </div>
+  <div class="panel" id="tools">
+    <button class="btn" data-a="random" title="Random points (R / Space)">🎲 random</button>
+    <button class="btn" data-a="blend" title="Random parameter blend">🧬 mutate</button>
+    <button class="btn" data-a="swap" title="Swap pen/background (S)">⇄ swap</button>
+    <button class="btn" data-a="color" title="Color mode (A)">🎨 <span id="cmName">…</span></button>
+    <button class="btn" data-a="size-" title="Pen smaller (X)">pen −</button>
+    <button class="btn" data-a="size+" title="Pen bigger (C)">pen +</button>
+    <button class="btn" data-a="wave" title="Trigger wave (W / middle click)">〰 wave</button>
+    <button class="btn" data-a="spawn1" title="Circular spawn (D / left click)">✦ spawn</button>
+    <button class="btn" data-a="spawn2" title="Scatter spawn (F / right click)">✧ scatter</button>
+    <button class="btn" data-a="pen" id="penBtn" title="Show/hide pen circle (P)">◯ pen</button>
+    <button class="btn" data-a="pause" id="pauseBtn" title="Pause">⏸</button>
+    <button class="btn" data-a="reset" title="Reset particles (N)">↺ reset</button>
+    <button class="btn" data-a="shot" title="Save PNG">📷</button>
+    <button class="btn" data-a="fs" title="Fullscreen">⛶</button>
+    <button class="btn" data-a="help" title="Help">?</button>
+    <select id="pcount" title="Particle count">
+      <option value="524288">0.5M particles</option>
+      <option value="1048576">1M particles</option>
+      <option value="2097152" selected>2M particles</option>
+      <option value="4194304">4M particles</option>
+      <option value="5767168">5.8M (original, heavy)</option>
+    </select>
+    <label style="display:flex;align-items:center;gap:6px;font-size:12px;opacity:.85">inertia
+      <input id="inertia" type="range" min="0" max="100" value="0" style="width:70px">
+    </label>
+  </div>
+  <div class="panel" id="pcapPanel">
+    <div class="prow" style="margin-top:0">
+      <button class="btn" id="pcapBtn">📡 load pcap</button>
+      <span id="pcapName" style="opacity:.6;font-size:11px">or drop a .pcap / .pcapng anywhere</span>
+      <input type="file" id="pcapFile" accept=".pcap,.pcapng,.cap" style="display:none">
+    </div>
+    <div id="pcapCtrls" style="display:none">
+      <div class="prow">
+        <button class="btn" id="pcapPlay" title="play/pause capture (G)">⏸</button>
+        <button class="btn on" id="pcapLoop" title="loop capture">∞</button>
+        <button class="btn on" id="pcapFollow" title="pen follows the loudest device when mouse is idle">🛰 follow</button>
+        <label>speed <input id="pcapSpeed" type="range" min="0" max="100" value="50" style="width:64px"><span id="pcapSpeedLbl"></span></label>
+        <label>influence <input id="pcapInf" type="range" min="0" max="100" value="50" style="width:64px"></label>
+      </div>
+      <div id="pcapProg"><div id="pcapProgFill"></div></div>
+      <div id="pcapStats"></div>
+      <div id="pcapFeed"></div>
+    </div>
+  </div>
+  <div class="panel" id="stats"><span id="fps">– fps</span><span id="pn"></span><span style="opacity:.7">? for help</span></div>
+</div>
+
+<div id="credit">recreation of <a href="https://github.com/Bleuje/interactive-physarum" target="_blank">Bleuje’s interactive-physarum</a> · parameters from <a href="https://www.sagejenson.com/36points/" target="_blank">mxsage’s “36 Points”</a> · CC BY-NC-SA 3.0</div>
+<div id="toast"></div>
+
+<div id="help"><div class="inner">
+  <h2>Motoko-Retia <span style="opacity:.55;font-size:13px;font-weight:400">· making the unseen visible</span></h2>
+  <p style="opacity:.7;font-size:12px;margin-top:-6px">a browser recreation of Bleuje’s <i>interactive-physarum</i>, fed by Wi-Fi packet entropy</p>
+  <p>Millions of agents deposit and follow trails; their four classic physarum parameters are modulated by the sensed trail value (mxsage’s “36 Points” technique). A <b>pen</b> area around your cursor carries a <em>second</em> parameter set, spatially blended into the background set — move it around to morph the organism.</p>
+  <h3>Mouse</h3>
+  <table>
+    <tr><td>move</td><td>position the pen (parameter blend area)</td></tr>
+    <tr><td>drag</td><td>push particles (displacement bias)</td></tr>
+    <tr><td>click</td><td>circular particle spawn</td></tr>
+    <tr><td>right click</td><td>scatter spawn near pen</td></tr>
+    <tr><td>middle click</td><td>trigger wave</td></tr>
+    <tr><td>wheel</td><td>pen size</td></tr>
+  </table>
+  <h3>Keyboard (same as the original)</h3>
+  <table>
+    <tr><td>← →</td><td>change Point of selected layer (with 0.5&nbsp;s transition)</td></tr>
+    <tr><td>↑ ↓</td><td>select pen / background layer</td></tr>
+    <tr><td>R, Space</td><td>random points</td></tr>
+    <tr><td>S</td><td>swap pen ↔ background</td></tr>
+    <tr><td>D / F</td><td>circular / scatter spawn</td></tr>
+    <tr><td>X / C</td><td>pen size − / +</td></tr>
+    <tr><td>W</td><td>wave</td></tr>
+    <tr><td>A</td><td>color mode</td></tr>
+    <tr><td>P or H</td><td>show/hide pen circle</td></tr>
+    <tr><td>0–9</td><td>jump to Point A–J</td></tr>
+    <tr><td>N</td><td>reset particles</td></tr>
+  </table>
+  <h3>Touch</h3>
+  <table>
+    <tr><td>drag</td><td>move pen + push particles</td></tr>
+    <tr><td>tap</td><td>circular spawn</td></tr>
+    <tr><td>2-finger tap</td><td>wave</td></tr>
+    <tr><td>pinch</td><td>pen size</td></tr>
+  </table>
+  <h3>Gamepad (original was built for one)</h3>
+  <p>Left stick: pen · Right stick: push particles · L2: inertia · D-pad: points · A/B: spawns · X: swap · Y: color · LB/RB: pen size · R-stick click: wave · Back: random.</p>
+  <h3>📡 Wi-Fi entropy (PCAP playback)</h3>
+  <p>Load or drop a <b>.pcap / .pcapng</b> capture (802.11 monitor-mode with radiotap works best; plain Ethernet works too) and the environment drives the piece. Every device gets a stable identity from its MAC hash — a home position, a color, and its own perturbation direction on the 15-parameter matrix. Traffic continuously drifts the pen &amp; background parameters (<b>influence</b> slider); <b>probe requests</b> scatter-spawn, <b>deauths</b> fire waves at the device, <b>data bursts</b> push the swarm toward the talker (RSSI scales weight), and new devices announce with a ring. With <b>follow</b> on, the pen wanders to whoever is loudest while your mouse is idle. <kbd>G</kbd> pauses playback. Console API: <code>physarum.loadPcapBuffer(arrayBuffer, name)</code>.</p>
+  <p style="opacity:.7">Credits: <a href="https://github.com/Bleuje/interactive-physarum" target="_blank">interactive-physarum</a> by Etienne Jacob (Bleuje), technique &amp; parameters from <a href="https://www.sagejenson.com/36points/" target="_blank">36 Points</a> by Sage Jenson (mxsage). See Bleuje’s <a href="https://bleuje.com/physarum-explanation/" target="_blank">explanation article</a>. License CC BY-NC-SA 3.0.</p>
+  <p><button class="btn" onclick="document.getElementById('help').style.display='none'">close</button></p>
+</div></div>
+
+<div id="fatal"><div class="inner" id="fatalMsg"></div></div>
+
+<script>
+'use strict';
+/* ================= constants (GlobalSettings from ofApp.h) ================= */
+const SIMW = 1280, SIMH = 736;
+const DECAY_FACTOR = 0.75, DEPOSIT_FACTOR = 0.003, PIXEL_SCALE_FACTOR = 250.0;
+const ORIGINAL_PARTICLES = 5767168;           // 512*512*22
+const TRANSITION_DURATION = 0.5, SPAWN_FRACTION = 0.1;
+const ACTION_SIGMA_CHANGE_DURATION = 0.26;
+const MAX_WAVES = 5, MAX_RANDOM_SPAWN = 5;
+const NUM_COLOR_MODES = 10;
+
+/* ============ points_basematrix.h — mxsage's 36 Points data ============ */
+const DE_SD = 2.000, DE_SA = 1.000, DE_RA = 1.000, DE_MD = 3.000;
+// SD0, SDE, SDA, SA0, SAE, SAA, RA0, RAE, RAA, MD0, MDE, MDA, SB1, SB2, SF
+const ParametersMatrix = [
+ [0.000, 4.000, 0.300, 0.100, 51.32, 20.00, 0.410, 4.000, 0.000, 0.100, 6.000, 0.100, 0.000, 0.000, 22.0], // 0  A pure_multiscale
+ [0.000, 28.04, 14.53, 0.090, DE_SA, 0.000, 0.010, 1.400, 1.120, 0.830, DE_MD, 0.000, 0.570, 0.030, 36.0], // 1  H hex_hole_open
+ [17.92, DE_SD, 0.000, 0.520, DE_SA, 0.000, 0.180, DE_RA, 0.000, 0.100, 6.050, 0.170, 0.000, 0.000, 18.0], // 2  C vertebrata
+ [3.000, 10.17, 0.400, 1.030, 2.300, 2.000, 1.420, 20.00, 0.750, 0.830, 1.560, 0.110, 1.070, 0.000, 13.0], // 3  E star_network
+ [0.000, 8.510, 0.190, 0.610, DE_SA, 0.000, 3.350, DE_RA, 0.000, 0.750, 12.62, 0.060, 0.000, 0.000, 34.0], // 4  F enmeshed_singularities
+ [0.000, 0.820, 0.030, 0.180, DE_SA, 0.000, 0.260, DE_RA, 0.000, 0.000, 20.00, 0.650, 0.200, 0.900, 31.5], // 5  B waves_upturn
+ [1.500, 1.940, 0.280, 1.730, 1.120, 0.710, 0.180, 2.220, 0.850, 0.500, 4.130, 0.110, 1.120, 0.000, 15.0], // 6  G more_individuals
+ [2.870, 3.040, 0.280, 0.090, DE_SA, 0.000, 0.440, 0.850, 0.000, 0.000, 2.220, 0.140, 0.300, 0.850, 11.0], // 7  I sloppy_bucky
+ [0.140, 1.120, 0.190, 0.270, 1.400, 0.000, 1.130, 2.000, 0.390, 0.750, 2.220, 0.190, 0.000, 7.140, 9.00], // 8  J massive_structure
+ [0.001, 2.540, 0.080, 0.000, DE_SA, 0.000, 3.350, DE_RA, 0.000, 0.100, 12.62, 0.060, 0.000, 0.000, 30.5], // 9  K speed_modulation
+ [0.000, 28.04, 20.00, 0.180, 26.74, 20.00, 0.010, 1.400, 1.120, 0.830, DE_MD, 0.000, 2.540, 0.000, 39.0], // 10 L transmission_tower
+ [0.000, 20.00, 3.000, 0.260, 2.150, 4.760, 0.410, 6.600, 12.62, 0.300, 6.600, 0.037, 0.400, 0.040, 28.0], // 11 M ink_on_white
+ [27.50, 2.000, 2.540, 0.880, 26.74, 0.000, 0.090, 2.000, 1.400, 0.100, 5.000, 7.410, 1.400, 14.25, 12.0], // 12 N vanishing_points
+ [0.000, 6.000, 100.0, 0.157, 1.000, 1.070, 0.000, 1.000, 5.000, 0.830, 5.000, 20.00, 0.400, 0.000, 8.00], // 13 Q scaling_nodule_emergence
+ [0.000, 15.00, 8.600, 0.030, DE_SA, 0.000, 0.340, 2.000, 1.070, 0.220, 15.00, 0.100, 2.300, 0.820, 38.0], // 14 O hyp_offset
+ [0.000, 32.88, 402.0, 0.410, 3.000, 0.000, 0.100, DE_RA, 0.000, 0.300, 6.000, 0.000, 0.000, 0.000, 32.0], // 15 D strike
+ [0.000, 0.800, 0.020, 5.200, DE_SA, 0.000, 0.260, 0.100, 2.790, 0.830, 32.88, 37.74, 0.090, 0.330, 22.0], // 16 P clear_spaghetti
+ [3.000, 10.17, 0.400, 1.030, 0.308, 0.000, 0.148, 20.00, 0.750, 0.830, 1.560, 0.110, 1.070, 0.040, 9.00], // 17 R
+ [0.000, 5.000, 0.050, 0.900, 2.800, 0.000, 0.006, 0.840, 1.110, 0.750, 1.200, 0.000, 0.000, 0.000, 21.0], // 18 S
+ [27.50, 28.04, 0.000, 0.390, 1.400, 0.000, 0.090, 0.846, 1.400, 0.100, 2.031, 0.070, 1.400, 0.030, 15.3], // 19 T
+ [0.000, 8.500, 0.029, 0.270, 0.000, 0.000, 0.410, 0.000, 0.000, 0.750, 12.62, 0.060, 0.840, 0.000, 31.8], // 20 U
+ [0.000, 6.370, 5.425, 1.030, 0.000, 0.000, 0.180, 0.289, 0.443, 0.300, 2.200, 0.065, 1.070, 0.040, 19.0], // 21 V
+ [1.464, 20.00, 80.00, 0.260, 2.150, 4.760, 1.513, 2.000, 12.62, 0.385, 12.62, 0.037, 1.000, 0.000, 25.0], // 22 (unused)
+ [0.000, 6.000, 100.0, 0.650, 0.175, 1.284, 0.000, 0.600, 5.000, 0.830, 5.395, 20.00, 0.400, 0.000, 8.60], // 23 (unused)
+];
+const PARAMS_DIM = 15;
+// order of the 22 used points; letter = index in this list ('A'+i)
+const selectedPoints = [0,5,2,15,3,4,6,1,7,8,9,10,11,12,14,16,13,17,18,19,20,21];
+const nicknames = { 0:'pure multiscale',5:'waves upturn',2:'vertebrata',15:'strike',3:'star network',
+ 4:'enmeshed singularities',6:'more individuals',1:'hex hole open',7:'sloppy bucky',8:'massive structure',
+ 9:'speed modulation',10:'transmission tower',11:'ink on white',12:'vanishing points',14:'hyp offset',
+ 16:'clear spaghetti',13:'nodule emergence',17:'star network II',18:'ripple lace',19:'plate borders',
+ 20:'soft cells',21:'coral mesh' };
+const colorModeNames = ['mono','purple fire × arctic','icy blue','ember on violet','gold & deep blue',
+ 'neon inferno','zorg pink','inferno × arctic','yellow over blue','green'];
+
+/* ============================ GLSL sources ============================ */
+const VS_QUAD = `#version 300 es
+void main(){
+  vec2 p = vec2(float((gl_VertexID<<1)&2), float(gl_VertexID&2));
+  gl_Position = vec4(p*2.0-1.0, 0.0, 1.0);
+}`;
+
+/* ---- move shader: port of computeshader_move.glsl (particle update) ---- */
+const FS_MOVE = `#version 300 es
+precision highp float;
+precision highp int;
+precision highp usampler2D;
+precision highp sampler2D;
+#define MAX_NUMBER_OF_WAVES 5
+#define MAX_NUMBER_OF_RANDOM_SPAWN 5
+#define PI 3.141592
+
+uniform usampler2D u_particles;   // x: pos(unorm2x16), y: (A,heading)(unorm2x16), z: vel(half2x16)
+uniform sampler2D u_trail;        // rg16f trail map (read)
+uniform float width;
+uniform float height;
+uniform float time;
+uniform float actionAreaSizeSigma;
+uniform float actionX;
+uniform float actionY;
+uniform float moveBiasActionX;
+uniform float moveBiasActionY;
+uniform float waveXarray[MAX_NUMBER_OF_WAVES];
+uniform float waveYarray[MAX_NUMBER_OF_WAVES];
+uniform float waveTriggerTimes[MAX_NUMBER_OF_WAVES];
+uniform float waveSavedSigmas[MAX_NUMBER_OF_WAVES];
+uniform float L2Action;
+uniform int   spawnParticles;
+uniform float spawnFraction;
+uniform int   randomSpawnNumber;
+uniform float randomSpawnXarray[MAX_NUMBER_OF_RANDOM_SPAWN];
+uniform float randomSpawnYarray[MAX_NUMBER_OF_RANDOM_SPAWN];
+uniform float pixelScaleFactor;
+// Point params, layout: 0 SD0,1 SDE,2 SDA,3 SA0,4 SAE,5 SAA,6 RA0,7 RAE,8 RAA,9 MD0,10 MDE,11 MDA,12 SB1,13 SB2,14 SF
+uniform float u_paramsPen[15];   // params[0] in the original
+uniform float u_paramsBg[15];    // params[1] in the original
+
+layout(location=0) out uvec4 outData;
+
+// --- randomness utils (verbatim port) ---
+float random3(vec3 st){
+  return fract(sin(dot(st.xyz, vec3(12.9898, 78.233, 151.7182))) * 43758.5453123);
+}
+float noise(vec3 st){
+  vec3 i = floor(st);
+  vec3 F = fract(st);
+  float a = random3(i);
+  float b = random3(i + vec3(1.0, 0.0, 0.0));
+  float c = random3(i + vec3(0.0, 1.0, 0.0));
+  float d = random3(i + vec3(1.0, 1.0, 0.0));
+  float e = random3(i + vec3(0.0, 0.0, 1.0));
+  float f = random3(i + vec3(1.0, 0.0, 1.0));
+  float g = random3(i + vec3(0.0, 1.0, 1.0));
+  float h = random3(i + vec3(1.0, 1.0, 1.0));
+  vec3 u = F * F * (3.0 - 2.0 * F);
+  return mix(mix(mix(a,b,u.x), mix(c,d,u.x), u.y), mix(mix(e,f,u.x), mix(g,h,u.x), u.y), u.z);
+}
+uint pcg_hash(uint v){
+  v = v * 747796405u + 2891336453u;
+  uint word = ((v >> ((v >> 28u) + 4u)) ^ v) * 277803737u;
+  return (word >> 22u) ^ word;
+}
+float randFloat(inout uint state){
+  state = pcg_hash(state);
+  return float(state) * (1.0 / 4294967296.0);
+}
+vec2 randomPosFromParticle(in vec2 particlePos){
+  ivec2 ipos = ivec2(floor(particlePos));
+  uint seed = (uint(ipos.x) & 0xFFFFu) | ((uint(ipos.y) & 0xFFFFu) << 16u);
+  float rx = randFloat(seed);
+  float ry = randFloat(seed);
+  return vec2(rx * width, ry * height);
+}
+float random01FromParticle(in vec2 particlePos){
+  ivec2 ipos = ivec2(floor(particlePos));
+  uint seed = (uint(ipos.x) & 0xFFFFu) | ((uint(ipos.y) & 0xFFFFu) << 16u);
+  return randFloat(seed);
+}
+// --- end randomness utils ---
+
+float getGridValue(vec2 pos){
+  return texelFetch(u_trail, ivec2(mod(pos.x + 0.5 + width, width), mod(pos.y + 0.5 + height, height)), 0).x;
+}
+float senseFromAngle(float angle, vec2 pos, float heading, float so){
+  return getGridValue(vec2(pos.x + so * cos(heading + angle), pos.y + so * sin(heading + angle)));
+}
+float propagatedWaveFunction(float x, float sigma){
+  float waveSigma = 0.15 + 0.4 * sigma;
+  return float(x <= 0.) * exp(-x * x / waveSigma / waveSigma);
+}
+
+void main(){
+  ivec2 tc = ivec2(gl_FragCoord.xy);
+  uvec4 pdata = texelFetch(u_particles, tc, 0);
+
+  // same packed layout as the original SSBO
+  vec2 particlePos = unpackUnorm2x16(pdata.x) * vec2(width, height);
+  vec2 currAHeading = unpackUnorm2x16(pdata.y) * vec2(1.0, 2.0 * PI);
+  vec2 velocity = unpackHalf2x16(pdata.z);
+
+  float heading = currAHeading.y;
+  vec2 direction = vec2(cos(heading), sin(heading));
+
+  vec2 normalizedPosition = vec2(particlePos.x / width, particlePos.y / height);
+  vec2 normalizedActionPosition = vec2(actionX / width, actionY / height);
+
+  vec2 positionForNoise1 = normalizedPosition;
+  positionForNoise1.x *= width / height;
+  vec2 positionForNoise2 = positionForNoise1;
+  float noiseScale = 20.0;
+  positionForNoise1 *= noiseScale;
+  float noiseScale2 = 6.0;
+  positionForNoise2 *= noiseScale2;
+
+  // "lerper": spatial interpolation parameter between Pen and Background point params
+  vec2 positionFromAction = normalizedPosition - normalizedActionPosition;
+  positionFromAction.x *= width / height;
+  float distanceNoiseFactor = (0.9 + 0.2 * noise(vec3(positionForNoise2.x, positionForNoise2.y, 0.6 * time)));
+  float distanceFromAction = distance(positionFromAction, vec2(0)) * distanceNoiseFactor;
+  float lerper = exp(-distanceFromAction * distanceFromAction / actionAreaSizeSigma / actionAreaSizeSigma);
+
+  // triggered waves
+  float waveSum = 0.;
+  float noiseVariationFactor = (0.95 + 0.1 * noise(vec3(positionForNoise1.x, positionForNoise1.y, 0.3 * time)));
+  float maxWaveTime = 5.0;
+  for(int i = 0; i < MAX_NUMBER_OF_WAVES; i++){
+    if((time - waveTriggerTimes[i]) <= maxWaveTime){
+      vec2 normalizedWaveCenterPosition = vec2(waveXarray[i] / width, waveYarray[i] / height);
+      vec2 relDiffWave = normalizedPosition - normalizedWaveCenterPosition;
+      relDiffWave.x *= width / height;
+      float diffDistWave = distance(relDiffWave, vec2(0));
+      float angleToCenter = atan(relDiffWave.y, relDiffWave.x);
+      float dir = (i % 2 == 0) ? 1. : -1.;
+      float delay = -0.1 + diffDistWave / 0.3 * noiseVariationFactor + 0.4 * pow(0.5 + 0.5 * cos(18. * angleToCenter + 10.0 * dir * diffDistWave), 0.3);
+      float varWave = delay - (time - waveTriggerTimes[i]);
+      float sigmaVariation = pow(waveSavedSigmas[i], 0.75);
+      waveSum += 0.6 * propagatedWaveFunction(varWave, waveSavedSigmas[i]) * max(0., 1. - 0.3 * diffDistWave / sigmaVariation * noiseVariationFactor);
+    }
+  }
+  waveSum = 1.7 * tanh(waveSum / 1.7) + 0.4 * tanh(4. * waveSum);
+
+  // sensed value scaling (technique/formulas from Sage Jenson / mxsage)
+  float tunedSensorScaler_mix = mix(u_paramsBg[14], u_paramsPen[14], lerper);
+  tunedSensorScaler_mix *= 1.0 + 0.3 * waveSum;
+
+  float SensorBias1_mix = mix(u_paramsBg[12], u_paramsPen[12], lerper);
+  float SensorBias2_mix = mix(u_paramsBg[13], u_paramsPen[13], lerper);
+
+  float currentSensedValue = getGridValue(particlePos + SensorBias2_mix * direction + vec2(0., SensorBias1_mix)) * tunedSensorScaler_mix;
+  currentSensedValue = clamp(currentSensedValue, 0.000000001, 1.0);
+
+  float SensorDistance0_mix = mix(u_paramsBg[0], u_paramsPen[0], lerper);
+  float SD_exponent_mix     = mix(u_paramsBg[1], u_paramsPen[1], lerper);
+  float SD_amplitude_mix    = mix(u_paramsBg[2], u_paramsPen[2], lerper);
+  float SensorAngle0_mix    = mix(u_paramsBg[3], u_paramsPen[3], lerper);
+  float SA_exponent_mix     = mix(u_paramsBg[4], u_paramsPen[4], lerper);
+  float SA_amplitude_mix    = mix(u_paramsBg[5], u_paramsPen[5], lerper);
+  float RotationAngle0_mix  = mix(u_paramsBg[6], u_paramsPen[6], lerper);
+  float RA_exponent_mix     = mix(u_paramsBg[7], u_paramsPen[7], lerper);
+  float RA_amplitude_mix    = mix(u_paramsBg[8], u_paramsPen[8], lerper);
+  float MoveDistance0_mix   = mix(u_paramsBg[9], u_paramsPen[9], lerper);
+  float MD_exponent_mix     = mix(u_paramsBg[10], u_paramsPen[10], lerper);
+  float MD_amplitude_mix    = mix(u_paramsBg[11], u_paramsPen[11], lerper);
+
+  // physarum param = A + B * (S ^ C)   (from 36 Points)
+  float sensorDistance = SensorDistance0_mix + SD_amplitude_mix * pow(currentSensedValue, SD_exponent_mix) * pixelScaleFactor;
+  float moveDistance   = MoveDistance0_mix   + MD_amplitude_mix * pow(currentSensedValue, MD_exponent_mix) * pixelScaleFactor;
+  float sensorAngle    = SensorAngle0_mix    + SA_amplitude_mix * pow(currentSensedValue, SA_exponent_mix);
+  float rotationAngle  = RotationAngle0_mix  + RA_amplitude_mix * pow(currentSensedValue, RA_exponent_mix);
+
+  // classic physarum sensing
+  float sensedLeft   = senseFromAngle(-sensorAngle, particlePos, heading, sensorDistance);
+  float sensedMiddle = senseFromAngle(0., particlePos, heading, sensorDistance);
+  float sensedRight  = senseFromAngle(sensorAngle, particlePos, heading, sensorDistance);
+
+  float newHeading = heading;
+  if(sensedMiddle > sensedLeft && sensedMiddle > sensedRight){
+    ;
+  } else if(sensedMiddle < sensedLeft && sensedMiddle < sensedRight){
+    newHeading = (random01FromParticle(particlePos) < 0.5 ? heading - rotationAngle : heading + rotationAngle);
+  } else if(sensedRight < sensedLeft){
+    newHeading = heading - rotationAngle;
+  } else if(sensedLeft < sensedRight){
+    newHeading = heading + rotationAngle;
+  }
+
+  // forced displacement (joystick / mouse-drag), noise-modulated
+  float noiseValue = noise(vec3(positionForNoise1.x, positionForNoise1.y, 0.8 * time));
+  float moveBiasFactor = 5. * lerper * noiseValue;
+  vec2 moveBias = moveBiasFactor * vec2(moveBiasActionX, moveBiasActionY);
+
+  float classicNewPositionX = particlePos.x + moveDistance * cos(newHeading) + moveBias.x;
+  float classicNewPositionY = particlePos.y + moveDistance * sin(newHeading) + moveBias.y;
+
+  // inertia experiment (verbatim)
+  velocity *= 0.98;
+  float vf = 1.0;
+  float velocityBias = 0.2 * L2Action;
+  float vx = velocity.x + vf * cos(newHeading) + velocityBias * moveBias.x;
+  float vy = velocity.y + vf * sin(newHeading) + velocityBias * moveBias.y;
+  float dt = 0.07 * pow(moveDistance, 1.4);
+  float inertiaNewPositionX = particlePos.x + dt * vx + moveBias.x;
+  float inertiaNewPositionY = particlePos.y + dt * vy + moveBias.y;
+
+  float moveStyleLerper = 0.6 * L2Action + 0.8 * waveSum;
+  float px = mix(classicNewPositionX, inertiaNewPositionX, moveStyleLerper);
+  float py = mix(classicNewPositionY, inertiaNewPositionY, moveStyleLerper);
+
+  // spawn actions
+  if(spawnParticles >= 1){
+    float randForChoice = random01FromParticle(particlePos * 1.1);
+    if(randForChoice < spawnFraction){
+      float randForRadius = random01FromParticle(particlePos * 2.2);
+      if(spawnParticles == 1){ // circular spawn
+        float randForTheta = random01FromParticle(particlePos * 3.3);
+        float theta = randForTheta * PI * 2.0;
+        float r1 = actionAreaSizeSigma * 0.55 * (0.95 + 0.1 * randForRadius);
+        vec2 spos = vec2(r1 * cos(theta), r1 * sin(theta));
+        spos *= height;
+        px = actionX + spos.x;
+        py = actionY + spos.y;
+      }
+      if(spawnParticles == 2){ // spawn at few places near pen
+        int randForSpawnIndex = int(floor(float(randomSpawnNumber) * random01FromParticle(particlePos * 4.4)));
+        randForSpawnIndex = clamp(randForSpawnIndex, 0, MAX_NUMBER_OF_RANDOM_SPAWN - 1);
+        float sx = randomSpawnXarray[randForSpawnIndex];
+        float sy = randomSpawnYarray[randForSpawnIndex];
+        vec2 spos = 0.65 * actionAreaSizeSigma * vec2(sx, sy) * (0.9 + 0.1 * randForRadius);
+        spos *= height;
+        px = actionX + spos.x;
+        py = actionY + spos.y;
+      }
+    }
+  }
+
+  vec2 nextPos = vec2(mod(px + width, width), mod(py + height, height));
+
+  // regular respawn (from 36 Points)
+  const float reinitSegment = 0.0010;
+  float curA = currAHeading.x;
+  if(curA < reinitSegment){
+    nextPos = randomPosFromParticle(particlePos);
+  }
+  float nextA = fract(curA + reinitSegment);
+
+  vec2 nextPosUV = mod(nextPos, vec2(width, height)) / vec2(width, height);
+  float newHeadingNorm = mod(newHeading, 2.0 * PI) / (2.0 * PI);
+  vec2 nextAandHeading = vec2(nextA, fract(newHeadingNorm));
+
+  outData = uvec4(packUnorm2x16(nextPosUV), packUnorm2x16(nextAandHeading), packHalf2x16(vec2(vx, vy)), 0u);
+}`;
+
+/* ---- deposit points: replaces the atomic counter (additive blend) ---- */
+const VS_POINTS = `#version 300 es
+precision highp float;
+precision highp int;
+precision highp usampler2D;
+uniform usampler2D u_particles;
+uniform int u_texW;
+uniform vec2 u_dim;
+void main(){
+  ivec2 tc = ivec2(gl_VertexID % u_texW, gl_VertexID / u_texW);
+  uvec4 pdata = texelFetch(u_particles, tc, 0);
+  vec2 p = unpackUnorm2x16(pdata.x) * u_dim;
+  vec2 rp = mod(floor(p + 0.5), u_dim);          // round(pos), wrapped
+  vec2 clip = ((rp + 0.5) / u_dim) * 2.0 - 1.0;  // pixel center
+  gl_Position = vec4(clip, 0.0, 1.0);
+  gl_PointSize = 1.0;
+}`;
+const FS_POINTS = `#version 300 es
+precision highp float;
+out vec4 o;
+void main(){ o = vec4(1.0, 0.0, 0.0, 1.0); }`;
+
+/* ---- trail deposit: trail update part of computeshader_deposit.glsl ---- */
+const FS_TRAILDEP = `#version 300 es
+precision highp float;
+uniform sampler2D u_trail;
+uniform sampler2D u_count;
+uniform float u_depositFactor;
+uniform float u_countScale;
+out vec4 o;
+void main(){
+  ivec2 tc = ivec2(gl_FragCoord.xy);
+  vec2 prevColor = texelFetch(u_trail, tc, 0).xy;
+  float count = texelFetch(u_count, tc, 0).x * u_countScale;
+  const float LIMIT = 100.0;
+  float limitedCount = min(count, LIMIT);
+  float addedDeposit = sqrt(limitedCount) * u_depositFactor;
+  o = vec4(prevColor.x + addedDeposit, prevColor.y, 0.0, 0.0);
+}`;
+
+/* ---- diffusion: port of computeshader_diffusion.glsl ---- */
+const FS_DIFFUSE = `#version 300 es
+precision highp float;
+uniform sampler2D u_trail;
+uniform float u_decay;
+uniform ivec2 u_idim;
+out vec4 o;
+void main(){
+  ivec2 pos = ivec2(gl_FragCoord.xy);
+  vec2 csum = vec2(0.);
+  for(int i = -1; i <= 1; i++){
+    for(int j = -1; j <= 1; j++){
+      ivec2 q = ivec2((pos.x - i + u_idim.x) % u_idim.x, (pos.y - j + u_idim.y) % u_idim.y);
+      csum += texelFetch(u_trail, q, 0).xy;
+    }
+  }
+  vec2 c = csum / 9.0;
+  float decayed = c.x * u_decay;
+  o = vec4(decayed, 0.8 * decayed + 0.2 * c.y, 0.0, 0.0);
+}`;
+
+/* ---- display: color part of computeshader_deposit.glsl (all 10 modes) ---- */
+const FS_DISPLAY = `#version 300 es
+precision highp float;
+uniform sampler2D u_trail;   // pre-deposit trail (prevColor)
+uniform sampler2D u_count;
+uniform float u_countScale;
+uniform int u_colorMode;
+uniform vec2 u_dim;
+out vec4 outputColor;
+
+vec3 interpolateGradient5(float f, vec3 cols[5]){
+  f = clamp(f, 0.0, 1.0);
+  float cur = f * 4.0;
+  int icur = int(floor(cur));
+  int nxt = min(icur + 1, 4);
+  return mix(cols[icur], cols[nxt], fract(cur));
+}
+vec3 interpolateGradient6(float f, vec3 cols[6]){
+  f = clamp(f, 0.0, 1.0);
+  float cur = f * 5.0;
+  int icur = int(floor(cur));
+  int nxt = min(icur + 1, 5);
+  return mix(cols[icur], cols[nxt], fract(cur));
+}
+vec3 interpolateGradient7(float f, vec3 cols[7]){
+  f = clamp(f, 0.0, 1.0);
+  float cur = f * 6.0;
+  int icur = int(floor(cur));
+  int nxt = min(icur + 1, 6);
+  return mix(cols[icur], cols[nxt], fract(cur));
+}
+const vec3 zorgPurple[5] = vec3[5](vec3(0.0), vec3(0.0), vec3(0.07,0.18,0.38), vec3(1.,0.,0.56), vec3(0.58,1.,0.2));
+const vec3 orangeBlue[7] = vec3[7](vec3(0.0), vec3(0.0), vec3(0.1,0.2,0.4), vec3(0.0,0.5,0.6), vec3(0.8,0.4,0.2), vec3(0.9,0.6,0.3), vec3(1.0,0.9,0.0));
+const vec3 green[7] = vec3[7](vec3(0.0), vec3(0.0), vec3(0.0,0.3,0.2), vec3(0.1,0.7,0.7), vec3(0.8,0.5,0.3), vec3(0.9,0.7,0.5), vec3(1.0,1.0,1.0));
+const vec3 purpleFire[7] = vec3[7](vec3(0.0), vec3(0.0), vec3(0.1,0.3,0.6), vec3(0.3,0.2,0.5), vec3(0.7,0.2,0.3), vec3(0.9,0.5,0.2), vec3(1.0,0.9,0.1));
+const vec3 arctic[7] = vec3[7](vec3(0.0), vec3(0.0), vec3(0.0,0.1,0.3), vec3(0.0,0.3,0.5), vec3(0.1,0.6,0.8), vec3(0.4,0.8,1.0), vec3(0.85,0.96,1.0));
+const vec3 neonInferno[6] = vec3[6](vec3(0.0), vec3(0.2,0.0,0.3), vec3(0.6,0.0,0.6), vec3(0.8,0.1,0.2), vec3(1.0,0.5,0.1), vec3(1.0));
+
+vec3 gradZorgPurple(float f){ return interpolateGradient5(f, zorgPurple); }
+vec3 gradOrangeBlue(float f){ return interpolateGradient7(f, orangeBlue); }
+vec3 gradGreen(float f){ return interpolateGradient7(f, green); }
+vec3 gradPurpleFire(float f){ return interpolateGradient7(f, purpleFire); }
+vec3 gradArctic(float f){ return interpolateGradient7(f, arctic); }
+vec3 gradNeonInferno(float f){ return interpolateGradient6(f, neonInferno); }
+
+void main(){
+  ivec2 pix = ivec2(gl_FragCoord.xy);
+  vec2 prevColor = texelFetch(u_trail, pix, 0).xy;
+  float rawCount = texelFetch(u_count, pix, 0).x;
+  // density compensation: original ran 5.77M particles; (count-1) so lone particles stay dark
+  float count1 = u_countScale * max(rawCount - 1.0, 0.0);
+
+  float countColorValue = pow(tanh(7.5 * pow(max(0., count1 / 1000.0), 0.3)), 8.5) * 1.1;
+  countColorValue = min(1.0, countColorValue);
+
+  float trailColorValue = pow(tanh(9.0 * pow(max(0., (250. * prevColor.y - 1.) / 1100.0), 0.3)), 8.5) * 1.05;
+  trailColorValue = min(1.0, trailColorValue);
+
+  vec2 pos = vec2(pix) - vec2(u_dim.x * 0.5, u_dim.y * 0.5);
+  pos *= (2.0 / (u_dim.x + u_dim.y)) * 0.6;
+  float offset = length(pos);
+
+  float temporalDiff = prevColor.x - prevColor.y;
+
+  vec3 col = vec3(0., 1., 0.);
+  float blend = tanh(500.0 * temporalDiff + 2.0 * offset);
+  vec3 col2 = vec3(countColorValue);
+
+  if(u_colorMode == 0){
+    col = vec3(countColorValue);
+  } else if(u_colorMode == 1){
+    vec3 col1 = gradPurpleFire(tanh(countColorValue * 1.3));
+    vec3 col3 = gradArctic(tanh(countColorValue * 1.3));
+    col = mix(col1, col3, blend);
+    col = clamp(1.25 * col, 0., 1.);
+  } else if(u_colorMode == 2){
+    vec3 col1 = gradArctic(fract(tanh(countColorValue * 0.6 + offset) + 0.15));
+    col = mix(col1, col2, blend);
+  } else if(u_colorMode == 3){
+    vec3 col1 = gradPurpleFire(tanh(countColorValue * 1.3));
+    col = mix(col1, col2, blend);
+  } else if(u_colorMode == 4){
+    vec3 col1 = gradOrangeBlue(tanh(countColorValue * 1.3 + offset));
+    col = mix(col1, col2, blend);
+  } else if(u_colorMode == 5){
+    vec3 col1 = gradNeonInferno(tanh(countColorValue * 1.3));
+    col = mix(col1, col2, blend);
+  } else if(u_colorMode == 6){
+    vec3 col1 = gradZorgPurple(fract(tanh(countColorValue * 0.6 + offset) + 0.15));
+    col = mix(col1, col2, blend);
+    vec3 col3 = gradArctic(tanh(countColorValue * 1.3));
+    col = mix(col1, col3, blend);
+    col = clamp(1.5 * pow(col, vec3(1.1)), 0., 1.);
+  } else if(u_colorMode == 7){
+    vec3 col1 = gradNeonInferno(tanh(countColorValue * 1.3));
+    vec3 col3 = gradArctic(tanh(countColorValue * 1.3));
+    col = mix(col1, col3, blend);
+    col = clamp(1.1 * col, 0., 1.);
+  } else if(u_colorMode == 8){
+    vec3 col1 = gradOrangeBlue(tanh(countColorValue * 1.3 + offset));
+    vec3 colGreen = gradGreen(tanh(countColorValue * 2.3 + offset));
+    vec3 col2_ = mix(vec3(clamp(1.3 * countColorValue, 0., 1.)), colGreen, 0.5);
+    vec3 col3 = mix(col2_, col1, 1. - 0.6 * tanh(sin(-1500. * abs(temporalDiff)) + 2.0 * offset));
+    vec3 col4 = gradOrangeBlue(tanh(countColorValue * 1.3 + offset));
+    vec3 col5 = vec3(countColorValue);
+    vec3 col6 = 1.25 * mix(col4, col5, tanh(500. * temporalDiff + 2.0 * offset));
+    col6 = pow(col6, vec3(2.0));
+    col = max(col6, col3);
+  } else if(u_colorMode == 9){
+    vec3 col1 = gradGreen(tanh(countColorValue * 1.3));
+    col = mix(col1, col2, blend);
+  }
+
+  col = clamp(col, vec3(0.), vec3(1.));
+  outputColor = vec4(col, 1.0);
+}`;
+
+/* ---- final blit to canvas (y-flip so sim-y matches screen-y) ---- */
+const FS_BLIT = `#version 300 es
+precision highp float;
+uniform sampler2D u_tex;
+uniform vec2 u_canvas;
+out vec4 o;
+void main(){
+  vec2 uv = gl_FragCoord.xy / u_canvas;
+  o = texture(u_tex, vec2(uv.x, 1.0 - uv.y));
+}`;
+
+/* ============================ helpers ============================ */
+const $ = id => document.getElementById(id);
+const clamp = (v,a,b) => v<a?a:(v>b?b:v);
+const map = (v,a,b,c,d,cl) => { let t=(v-a)/(b-a); if(cl)t=clamp(t,0,1); return c+t*(d-c); };
+const randi = n => Math.floor(Math.random()*n);
+function fatal(msg){ $('fatalMsg').innerHTML = msg; $('fatal').style.display='grid'; throw new Error(msg); }
+let toastTimer=null;
+function toast(msg){ const t=$('toast'); t.textContent=msg; t.style.opacity=1;
+  clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.style.opacity=0, 2200); }
+
+/* ==================== PointsDataManager (JS mirror) ==================== */
+const currentPointsData = ParametersMatrix.map(r=>r.slice());
+const NUM_POINTS = selectedPoints.length;             // 22 → letters A..V
+let selectedIndices = [21, 21];                       // [pen, background], start at V like the original
+let currentSelectionIndex = 0;
+let usedPointsTargets = [null,null];
+const currentPointValues = [null,null];
+function reloadTargets(){
+  for(let i=0;i<2;i++) usedPointsTargets[i] = currentPointsData[selectedPoints[selectedIndices[i]]].slice();
+}
+reloadTargets();
+currentPointValues[0]=usedPointsTargets[0].slice();
+currentPointValues[1]=usedPointsTargets[1].slice();
+
+let frameNum = 0;
+const getTime = () => frameNum/60;                    // frame-based clock, like the original
+let transitionTriggerTime = -12345;
+const currentTransitionProgress = () => clamp((getTime()-transitionTriggerTime)/TRANSITION_DURATION, 0, 1);
+function paramsUpdate(){                              // updateCurrentValuesFromTransitionProgress
+  const lerper = Math.pow(currentTransitionProgress(), 1.5);
+  for(let k=0;k<2;k++){ const cur=currentPointValues[k], tgt=usedPointsTargets[k];
+    for(let j=0;j<PARAMS_DIM;j++) cur[j] += (tgt[j]-cur[j])*lerper; }
+}
+
+/* ============================ app state ============================ */
+let curActionX=SIMW/2, curActionY=SIMH/2;
+let sigmaCount=2, currentActionAreaSizeSigma=0.5, latestSigmaChangeTime=-12345;
+const maxActionSize=0.85;
+let colorModeType=1, showPen=true, paused=false;
+let mbX=0, mbY=0, mbTargetX=0, mbTargetY=0;           // moveBias (stick / drag)
+let dragPushing=false, padPushing=false;
+let L2slider=0, L2pad=0;
+let particlesSpawn=0, randomSpawnNumber=0, pendingSpawnPos=null, pcapPushing=false;
+const randomSpawnX=new Float32Array(MAX_RANDOM_SPAWN), randomSpawnY=new Float32Array(MAX_RANDOM_SPAWN);
+const waveX=new Float32Array(MAX_WAVES).fill(SIMW/2), waveY=new Float32Array(MAX_WAVES).fill(SIMH/2);
+const waveT=new Float32Array(MAX_WAVES).fill(-12345), waveS=new Float32Array(MAX_WAVES).fill(0.5);
+let waveIdx=0;
+const flashes=[];                                     // overlay feedback animations
+let uiDirty=true;
+
+/* ============================ actions ============================ */
+const triggerTransition = () => { transitionTriggerTime = getTime(); uiDirty=true; };
+function actionChangeParams(dir){
+  const i=currentSelectionIndex;
+  selectedIndices[i]=(selectedIndices[i]+dir+NUM_POINTS)%NUM_POINTS;
+  usedPointsTargets[i]=currentPointsData[selectedPoints[selectedIndices[i]]].slice();
+  triggerTransition();
+}
+function actionSetPointIndex(idx){
+  const i=currentSelectionIndex;
+  selectedIndices[i]=(idx%NUM_POINTS+NUM_POINTS)%NUM_POINTS;
+  usedPointsTargets[i]=currentPointsData[selectedPoints[selectedIndices[i]]].slice();
+  triggerTransition();
+}
+function actionChangeSelectionIndex(dir){ currentSelectionIndex=(currentSelectionIndex+dir+2)%2; uiDirty=true; }
+function actionSwapParams(){
+  [usedPointsTargets[0],usedPointsTargets[1]]=[usedPointsTargets[1],usedPointsTargets[0]];
+  [selectedIndices[0],selectedIndices[1]]=[selectedIndices[1],selectedIndices[0]];
+  triggerTransition();
+}
+function actionRandomParams(){
+  selectedIndices[0]=randi(NUM_POINTS); selectedIndices[1]=randi(NUM_POINTS);
+  reloadTargets(); triggerTransition();
+}
+function resetAllPoints(){
+  for(const sp of selectedPoints) for(let j=0;j<PARAMS_DIM;j++) currentPointsData[sp][j]=ParametersMatrix[sp][j];
+  reloadTargets();
+}
+function actionRandomBlend(){                          // createRandomParameters port
+  resetAllPoints();
+  const p0=randi(NUM_POINTS);
+  const targetRow=currentPointsData[selectedPoints[selectedIndices[currentSelectionIndex]]];
+  for(let j=0;j<PARAMS_DIM;j++) targetRow[j]=currentPointsData[selectedPoints[p0]][j];
+  for(let j=0;j<PARAMS_DIM;j++){
+    if(randi(2)===0) continue;
+    let pc=-1, ok=false, guard=0;
+    while(!ok && guard++<200){
+      pc=randi(NUM_POINTS);
+      ok = pc!==p0 && (!(j===1||j===4||j===7||j===10) || currentPointsData[selectedPoints[pc]][j]>=0.001);
+    }
+    let value=currentPointsData[selectedPoints[pc]][j];
+    if(randi(2)===0){
+      let pc2=randi(NUM_POINTS); while(pc2===p0) pc2=randi(NUM_POINTS);
+      const l=0.01*randi(100);
+      value=(1-l)*value + l*currentPointsData[selectedPoints[pc2]][j];
+    }
+    targetRow[j]=value;
+  }
+  reloadTargets(); triggerTransition(); toast('mutated '+pointLabel(currentSelectionIndex));
+}
+function actionChangeColorMode(){ colorModeType=(colorModeType+1)%NUM_COLOR_MODES; uiDirty=true; }
+function actionChangeSigmaCount(dir){ sigmaCount=(sigmaCount+dir+7)%7; latestSigmaChangeTime=getTime(); }
+function sigmaWheel(dir){ sigmaCount=clamp(sigmaCount+dir,0,6); latestSigmaChangeTime=getTime(); }
+function updateActionAreaSizeSigma(){
+  const target=map(sigmaCount,0,6,0.15,maxActionSize);
+  const l=Math.pow(clamp((getTime()-latestSigmaChangeTime)/ACTION_SIGMA_CHANGE_DURATION,0,1),1.7);
+  currentActionAreaSizeSigma += (target-currentActionAreaSizeSigma)*l;
+}
+function actionTriggerWave(x,y){
+  const wx=(typeof x==='number')?x:curActionX, wy=(typeof y==='number')?y:curActionY;
+  waveX[waveIdx]=wx; waveY[waveIdx]=wy;
+  waveT[waveIdx]=getTime(); waveS[waveIdx]=currentActionAreaSizeSigma;
+  waveIdx=(waveIdx+1)%MAX_WAVES;
+  flashes.push({t:performance.now(), kind:'wave', x:wx, y:wy});
+}
+function setRandomSpawn(){
+  randomSpawnNumber=MAX_RANDOM_SPAWN;
+  for(let i=0;i<randomSpawnNumber;i++){
+    const th=Math.random()*Math.PI*2, r=Math.sqrt(Math.random());
+    randomSpawnX[i]=r*Math.cos(th); randomSpawnY[i]=r*Math.sin(th);
+  }
+}
+function actionSpawnParticles(type,x,y){
+  particlesSpawn=type;
+  pendingSpawnPos=(typeof x==='number')?{x,y}:null;
+  if(type===2) setRandomSpawn();
+  flashes.push({t:performance.now(), kind:'spawn'+type,
+    x:pendingSpawnPos?pendingSpawnPos.x:curActionX, y:pendingSpawnPos?pendingSpawnPos.y:curActionY});
+}
+const pointLabel = i => 'Point '+String.fromCharCode(65+selectedIndices[i]);
+
+/* ============================ WebGL setup ============================ */
+const canvas=$('c'), ov=$('ov'), octx=ov.getContext('2d');
+const gl=canvas.getContext('webgl2',{antialias:false,alpha:false,depth:false,stencil:false,powerPreference:'high-performance'});
+if(!gl) fatal('This page needs <b>WebGL2</b>, which your browser/GPU does not provide.');
+if(!gl.getExtension('EXT_color_buffer_float') && !gl.getExtension('EXT_color_buffer_half_float'))
+  fatal('Missing float render target support (<code>EXT_color_buffer_float</code>).');
+canvas.addEventListener('webglcontextlost', e=>{ e.preventDefault(); fatal('GPU context lost — please reload the page.'); });
+
+function compile(type,src,name){
+  const s=gl.createShader(type); gl.shaderSource(s,src); gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)){
+    const log=gl.getShaderInfoLog(s); console.error(name,log,src);
+    fatal('Shader compile error in <b>'+name+'</b>:<br><pre style="white-space:pre-wrap">'+log+'</pre>');
+  }
+  return s;
+}
+function program(vs,fs,name){
+  const p=gl.createProgram();
+  gl.attachShader(p,compile(gl.VERTEX_SHADER,vs,name+'.vert'));
+  gl.attachShader(p,compile(gl.FRAGMENT_SHADER,fs,name+'.frag'));
+  gl.linkProgram(p);
+  if(!gl.getProgramParameter(p,gl.LINK_STATUS)) fatal('Program link error in '+name+': '+gl.getProgramInfoLog(p));
+  return p;
+}
+const pMove=program(VS_QUAD,FS_MOVE,'move');
+const pPoints=program(VS_POINTS,FS_POINTS,'points');
+const pTrailDep=program(VS_QUAD,FS_TRAILDEP,'trailDeposit');
+const pDiffuse=program(VS_QUAD,FS_DIFFUSE,'diffusion');
+const pDisplay=program(VS_QUAD,FS_DISPLAY,'display');
+const pBlit=program(VS_QUAD,FS_BLIT,'blit');
+const vao=gl.createVertexArray(); gl.bindVertexArray(vao);
+
+function locs(p,names){ const o={}; for(const n of names) o[n]=gl.getUniformLocation(p,n); return o; }
+const Lm=locs(pMove,['u_particles','u_trail','width','height','time','actionAreaSizeSigma','actionX','actionY',
+ 'moveBiasActionX','moveBiasActionY','waveXarray[0]','waveYarray[0]','waveTriggerTimes[0]','waveSavedSigmas[0]',
+ 'L2Action','spawnParticles','spawnFraction','randomSpawnNumber','randomSpawnXarray[0]','randomSpawnYarray[0]',
+ 'pixelScaleFactor','u_paramsPen[0]','u_paramsBg[0]']);
+const Lp=locs(pPoints,['u_particles','u_texW','u_dim']);
+const Lt=locs(pTrailDep,['u_trail','u_count','u_depositFactor','u_countScale']);
+const Ld=locs(pDiffuse,['u_trail','u_decay','u_idim']);
+const Ls=locs(pDisplay,['u_trail','u_count','u_countScale','u_colorMode','u_dim']);
+const Lb=locs(pBlit,['u_tex','u_canvas']);
+
+function makeTex(w,h,internal,format,type,data,filter){
+  const t=gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D,t);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,filter||gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,filter||gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+  gl.texImage2D(gl.TEXTURE_2D,0,internal,w,h,0,format,type,data||null);
+  return t;
+}
+function makeFBO(tex){
+  const f=gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER,f);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,tex,0);
+  const st=gl.checkFramebufferStatus(gl.FRAMEBUFFER);
+  if(st!==gl.FRAMEBUFFER_COMPLETE) fatal('Framebuffer incomplete (0x'+st.toString(16)+') — your GPU may not support a required texture format.');
+  return f;
+}
+
+// trail maps (RG16F like the original), particle counter, display image
+let trailA=makeTex(SIMW,SIMH,gl.RG16F,gl.RG,gl.HALF_FLOAT);
+let trailB=makeTex(SIMW,SIMH,gl.RG16F,gl.RG,gl.HALF_FLOAT);
+let countTex=makeTex(SIMW,SIMH,gl.R16F,gl.RED,gl.HALF_FLOAT);
+let displayTex=makeTex(SIMW,SIMH,gl.RGBA8,gl.RGBA,gl.UNSIGNED_BYTE,null,gl.LINEAR);
+let fboTrailA=makeFBO(trailA), fboTrailB=makeFBO(trailB), fboCount=makeFBO(countTex), fboDisplay=makeFBO(displayTex);
+
+// particle state, packed exactly like the original SSBO (uint = 2×unorm16 / 2×half)
+let N=0, PW=0, PH=0, countScale=1;
+let partTex=[null,null], fboPart=[null,null], front=0;
+function initParticles(n){
+  const maxTS=gl.getParameter(gl.MAX_TEXTURE_SIZE);
+  PW = n>1048576 ? 2048 : 1024;
+  PH = Math.ceil(n/PW);
+  if(PH>maxTS) fatal('Texture size limit too small for this particle count.');
+  N = PW*PH;
+  countScale = ORIGINAL_PARTICLES/N;
+  const d=new Uint32Array(PW*PH*4);
+  const p16=(a,b)=>((Math.round(a*65535)&0xFFFF)|((Math.round(b*65535)&0xFFFF)<<16))>>>0;
+  for(let i=0;i<N;i++){
+    d[4*i]  =p16(Math.random(),Math.random());   // pos
+    d[4*i+1]=p16(Math.random(),Math.random());   // (A, heading)
+    d[4*i+2]=0; d[4*i+3]=0;                      // velocity halfs, spare
+  }
+  for(let k=0;k<2;k++){
+    if(partTex[k]){ gl.deleteTexture(partTex[k]); gl.deleteFramebuffer(fboPart[k]); }
+    partTex[k]=makeTex(PW,PH,gl.RGBA32UI,gl.RGBA_INTEGER,gl.UNSIGNED_INT,k===0?d:null);
+    fboPart[k]=makeFBO(partTex[k]);
+  }
+  front=0;
+  $('pn').textContent=(N/1e6).toFixed(1).replace('.0','')+'M agents';
+}
+initParticles(parseInt($('pcount').value,10));
+
+// one-time uniforms
+gl.useProgram(pMove);
+gl.uniform1i(Lm['u_particles'],0); gl.uniform1i(Lm['u_trail'],1);
+gl.uniform1f(Lm['width'],SIMW); gl.uniform1f(Lm['height'],SIMH);
+gl.uniform1f(Lm['spawnFraction'],SPAWN_FRACTION);
+gl.uniform1f(Lm['pixelScaleFactor'],PIXEL_SCALE_FACTOR);
+gl.useProgram(pPoints);
+gl.uniform1i(Lp['u_particles'],0); gl.uniform2f(Lp['u_dim'],SIMW,SIMH);
+gl.useProgram(pTrailDep);
+gl.uniform1i(Lt['u_trail'],0); gl.uniform1i(Lt['u_count'],1); gl.uniform1f(Lt['u_depositFactor'],DEPOSIT_FACTOR);
+gl.useProgram(pDiffuse);
+gl.uniform1i(Ld['u_trail'],0); gl.uniform1f(Ld['u_decay'],DECAY_FACTOR); gl.uniform2i(Ld['u_idim'],SIMW,SIMH);
+gl.useProgram(pDisplay);
+gl.uniform1i(Ls['u_trail'],0); gl.uniform1i(Ls['u_count'],1); gl.uniform2f(Ls['u_dim'],SIMW,SIMH);
+gl.useProgram(pBlit);
+gl.uniform1i(Lb['u_tex'],0);
+
+const penParams=new Float32Array(PARAMS_DIM), bgParams=new Float32Array(PARAMS_DIM);
+function bindTex(unit,tex){ gl.activeTexture(gl.TEXTURE0+unit); gl.bindTexture(gl.TEXTURE_2D,tex); }
+
+/* ============================ simulation step ============================ */
+function step(){
+  frameNum++;
+  const time=getTime();
+  paramsUpdate();
+  updateActionAreaSizeSigma();
+  pollGamepad();
+  pcapTick();
+  // moveBias smoothing / release decay
+  const pushing = dragPushing || padPushing || pcapPushing;
+  mbX += ((pushing?mbTargetX:0)-mbX)*0.35;
+  mbY += ((pushing?mbTargetY:0)-mbY)*0.35;
+  const L2Action = clamp(Math.max(L2slider, L2pad), 0, 1);
+
+  // 1 — move particles (compute → fragment ping-pong)
+  gl.bindFramebuffer(gl.FRAMEBUFFER,fboPart[1-front]);
+  gl.viewport(0,0,PW,PH);
+  gl.useProgram(pMove);
+  bindTex(0,partTex[front]); bindTex(1,trailA);
+  penParams.set(currentPointValues[0]); bgParams.set(currentPointValues[1]);
+  applyPcapEntropy(penParams,bgParams);
+  gl.uniform1fv(Lm['u_paramsPen[0]'],penParams);
+  gl.uniform1fv(Lm['u_paramsBg[0]'],bgParams);
+  gl.uniform1f(Lm['time'],time);
+  gl.uniform1f(Lm['actionAreaSizeSigma'],currentActionAreaSizeSigma);
+  // spawns triggered by packets happen at the device's position (one-frame action override)
+  const spx=(particlesSpawn&&pendingSpawnPos)?pendingSpawnPos.x:curActionX;
+  const spy=(particlesSpawn&&pendingSpawnPos)?pendingSpawnPos.y:curActionY;
+  gl.uniform1f(Lm['actionX'],spx); gl.uniform1f(Lm['actionY'],spy);
+  gl.uniform1f(Lm['moveBiasActionX'],mbX); gl.uniform1f(Lm['moveBiasActionY'],mbY);
+  gl.uniform1fv(Lm['waveXarray[0]'],waveX); gl.uniform1fv(Lm['waveYarray[0]'],waveY);
+  gl.uniform1fv(Lm['waveTriggerTimes[0]'],waveT); gl.uniform1fv(Lm['waveSavedSigmas[0]'],waveS);
+  gl.uniform1f(Lm['L2Action'],L2Action);
+  gl.uniform1i(Lm['spawnParticles'],particlesSpawn);
+  gl.uniform1i(Lm['randomSpawnNumber'],randomSpawnNumber);
+  gl.uniform1fv(Lm['randomSpawnXarray[0]'],randomSpawnX);
+  gl.uniform1fv(Lm['randomSpawnYarray[0]'],randomSpawnY);
+  gl.drawArrays(gl.TRIANGLES,0,3);
+  front=1-front;
+
+  // 2 — particle counter: clear + additive point deposit (replaces atomicAdd)
+  gl.bindFramebuffer(gl.FRAMEBUFFER,fboCount);
+  gl.viewport(0,0,SIMW,SIMH);
+  gl.clearColor(0,0,0,0); gl.clear(gl.COLOR_BUFFER_BIT);
+  gl.useProgram(pPoints);
+  bindTex(0,partTex[front]);
+  gl.uniform1i(Lp['u_texW'],PW);
+  gl.enable(gl.BLEND); gl.blendFunc(gl.ONE,gl.ONE);
+  gl.drawArrays(gl.POINTS,0,N);
+  gl.disable(gl.BLEND);
+
+  // 3 — deposit into trail map
+  gl.bindFramebuffer(gl.FRAMEBUFFER,fboTrailB);
+  gl.useProgram(pTrailDep);
+  bindTex(0,trailA); bindTex(1,countTex);
+  gl.uniform1f(Lt['u_countScale'],countScale);
+  gl.drawArrays(gl.TRIANGLES,0,3);
+
+  // 4 — colorize to display image (uses pre-deposit trail, like the original)
+  gl.bindFramebuffer(gl.FRAMEBUFFER,fboDisplay);
+  gl.useProgram(pDisplay);
+  bindTex(0,trailA); bindTex(1,countTex);
+  gl.uniform1f(Ls['u_countScale'],countScale);
+  gl.uniform1i(Ls['u_colorMode'],colorModeType);
+  gl.drawArrays(gl.TRIANGLES,0,3);
+
+  // 5 — diffusion + decay back into trailA
+  gl.bindFramebuffer(gl.FRAMEBUFFER,fboTrailA);
+  gl.useProgram(pDiffuse);
+  bindTex(0,trailB);
+  gl.drawArrays(gl.TRIANGLES,0,3);
+
+  if(particlesSpawn){ particlesSpawn=0; pendingSpawnPos=null; }
+}
+
+function render(){
+  gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+  gl.viewport(0,0,canvas.width,canvas.height);
+  gl.useProgram(pBlit);
+  bindTex(0,displayTex);
+  gl.uniform2f(Lb['u_canvas'],canvas.width,canvas.height);
+  gl.drawArrays(gl.TRIANGLES,0,3);
+}
+
+/* ============================ overlay (pen ring + HUD) ============================ */
+function drawOverlay(){
+  const w=ov.clientWidth, h=ov.clientHeight;
+  octx.setTransform(OVDPR,0,0,OVDPR,0,0);
+  octx.clearRect(0,0,w,h);
+  const u=h/1080;
+  const cx=curActionX/SIMW*w, cy=curActionY/SIMH*h;
+  if(showPen){
+    const R=currentActionAreaSizeSigma*600*u*(1.0+0.08*Math.sin(0.4*getTime()*6));
+    octx.beginPath(); octx.arc(cx,cy,Math.max(R,2),0,7);
+    octx.lineWidth=9*u*0.9+2; octx.strokeStyle='rgba(0,0,0,0.35)'; octx.stroke();
+    octx.beginPath(); octx.arc(cx,cy,Math.max(R,2),0,7);
+    octx.lineWidth=9*u*0.55; octx.strokeStyle='rgba(255,255,255,0.75)'; octx.stroke();
+    octx.beginPath(); octx.arc(cx,cy,2.5*u+1,0,7); octx.fillStyle='rgba(255,255,255,0.8)'; octx.fill();
+  }
+  // devices from the capture: stable positions, glow with their traffic
+  if(P.data){
+    const uu=u*1.4;
+    for(const dv of P.data.devices){
+      if(dv.ema<=0.04) continue;
+      const a=Math.min(dv.ema,1.2);
+      const dx=dv.x/SIMW*w, dy=dv.y/SIMH*h;
+      octx.beginPath(); octx.arc(dx,dy,(2.5+a*7)*uu,0,7);
+      octx.fillStyle='hsla('+dv.hue+',85%,65%,'+(0.15+0.3*Math.min(a,1)).toFixed(3)+')';
+      octx.fill();
+      if(a>0.55){
+        octx.fillStyle='rgba(255,255,255,0.5)';
+        octx.font=Math.round(10*uu)+'px ui-monospace,monospace';
+        octx.fillText(dv.ssid||dv.mac.slice(-8), dx+9*uu, dy-7*uu);
+      }
+    }
+  }
+  const now=performance.now();
+  for(let i=flashes.length-1;i>=0;i--){
+    const f=flashes[i], a=(now-f.t)/500;
+    if(a>=1){ flashes.splice(i,1); continue; }
+    const fx=f.x/SIMW*w, fy=f.y/SIMH*h;
+    octx.beginPath();
+    const rr=(f.kind==='wave')? a*260*u : (f.kind==='spawn1'? (1-a)*currentActionAreaSizeSigma*0.55*h : a*60*u);
+    octx.arc(fx,fy,Math.max(rr,1),0,7);
+    octx.lineWidth=2.5*(1-a)*u+0.5;
+    octx.strokeStyle=(f.kind==='wave')?'rgba(140,200,255,'+(0.8*(1-a))+')':'rgba(255,230,150,'+(0.8*(1-a))+')';
+    octx.stroke();
+  }
+}
+
+function updateHUD(){
+  if(!uiDirty) return; uiDirty=false;
+  for(const i of [0,1]){
+    $('pt'+i+'name').textContent=String.fromCharCode(65+selectedIndices[i]);
+    $('pt'+i+'nick').textContent=nicknames[selectedPoints[selectedIndices[i]]]||'';
+    $('pt'+i).classList.toggle('sel', currentSelectionIndex===i);
+  }
+  $('cmName').textContent=colorModeNames[colorModeType];
+  $('penBtn').classList.toggle('on',showPen);
+}
+
+/* ============================ main loop ============================ */
+let lastStep=0, fpsEMA=60, lastFpsTs=0, shotRequested=false, autoTuned=false;
+const TIERS=[524288,1048576,2097152,4194304,5767168];
+function loop(ts){
+  requestAnimationFrame(loop);
+  if(!paused){
+    if(ts-lastStep>=15.2){
+      const dt=ts-lastFpsTs; lastFpsTs=ts;
+      if(dt>0&&dt<500) fpsEMA+=(1000/dt-fpsEMA)*0.05;
+      lastStep=Math.max(lastStep+16.66, ts-50);
+      step(); render(); drawOverlay();
+      if((frameNum&15)===0){ $('fps').textContent=Math.round(fpsEMA)+' fps'; updateHUD(); }
+      if(!autoTuned && frameNum===360 && fpsEMA<34){
+        const cur=TIERS.findIndex(v=>v>=N);
+        if(cur>0){ autoTuned=true; $('pcount').value=TIERS[cur-1]; initParticles(TIERS[cur-1]);
+          toast('Lowered to '+(TIERS[cur-1]/1e6).toFixed(1)+'M particles for smoothness — change it in the menu'); }
+      }
+    }
+  } else { render(); drawOverlay(); }
+  if(shotRequested){
+    shotRequested=false;
+    canvas.toBlob(b=>{ if(!b)return; const a=document.createElement('a');
+      a.href=URL.createObjectURL(b); a.download='physarum-'+Date.now()+'.png'; a.click();
+      setTimeout(()=>URL.revokeObjectURL(a.href),5000); },'image/png');
+  }
+}
+
+/* ============================ sizing ============================ */
+let OVDPR=1;
+function resize(){
+  const dpr=Math.min(window.devicePixelRatio||1,2);
+  canvas.width=Math.round(innerWidth*dpr); canvas.height=Math.round(innerHeight*dpr);
+  OVDPR=dpr; ov.width=canvas.width; ov.height=canvas.height;
+}
+addEventListener('resize',resize); resize();
+
+/* ============================ pointer input ============================ */
+const pointers=new Map();
+let downInfo=null, pinchDist=0, lastMove={x:0,y:0,t:0};
+const toSim=(x,y)=>[clamp(x/innerWidth,0,1)*SIMW, clamp(y/innerHeight,0,1)*SIMH];
+function setPen(x,y){ [curActionX,curActionY]=toSim(x,y); }
+
+canvas.addEventListener('pointerdown',e=>{
+  canvas.setPointerCapture(e.pointerId);
+  pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if(pointers.size===2){                      // two-finger tap → wave
+    downInfo=null; dragPushing=false;
+    const pts=[...pointers.values()];
+    pinchDist=Math.hypot(pts[0].x-pts[1].x,pts[0].y-pts[1].y);
+    actionTriggerWave();
+    return;
+  }
+  setPen(e.clientX,e.clientY);
+  if(e.button===1){ actionTriggerWave(); downInfo=null; e.preventDefault(); return; }
+  if(e.button===2){ actionSpawnParticles(2); downInfo=null; return; }
+  downInfo={x:e.clientX,y:e.clientY,t:performance.now(),moved:false};
+  lastMove={x:e.clientX,y:e.clientY,t:performance.now()};
+});
+canvas.addEventListener('pointermove',e=>{
+  if(pointers.has(e.pointerId)) pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if(pointers.size===2){                      // pinch → pen size
+    const pts=[...pointers.values()];
+    const d=Math.hypot(pts[0].x-pts[1].x,pts[0].y-pts[1].y);
+    if(Math.abs(d-pinchDist)>50){ sigmaWheel(d>pinchDist?1:-1); pinchDist=d; }
+    return;
+  }
+  if(e.pointerType==='mouse' || pointers.size>=1) setPen(e.clientX,e.clientY);
+  if(downInfo && pointers.size===1){
+    const now=performance.now();
+    const dx=e.clientX-downInfo.x, dy=e.clientY-downInfo.y;
+    if(Math.hypot(dx,dy)>8) downInfo.moved=true;
+    if(downInfo.moved){
+      dragPushing=true;
+      const dt=Math.max(now-lastMove.t,1);
+      const vx=(e.clientX-lastMove.x)/dt, vy=(e.clientY-lastMove.y)/dt;   // css px / ms
+      const simVx=vx*16.7*(SIMW/innerWidth), simVy=vy*16.7*(SIMH/innerHeight); // sim px / frame
+      mbTargetX=clamp(simVx/8,-1,1); mbTargetY=clamp(simVy/8,-1,1);       // ±8 px/frame ≙ full stick
+    }
+    lastMove={x:e.clientX,y:e.clientY,t:now};
+  }
+});
+function endPointer(e){
+  pointers.delete(e.pointerId);
+  if(pointers.size===0){
+    dragPushing=false;
+    if(downInfo && !downInfo.moved && performance.now()-downInfo.t<350 && e.button===0)
+      actionSpawnParticles(1);                // quick tap → circular spawn
+    downInfo=null;
+  }
+}
+canvas.addEventListener('pointerup',endPointer);
+canvas.addEventListener('pointercancel',endPointer);
+canvas.addEventListener('contextmenu',e=>e.preventDefault());
+canvas.addEventListener('mousedown',e=>{ if(e.button===1) e.preventDefault(); }); // no middle-click autoscroll
+addEventListener('wheel',e=>{ if(e.target===canvas) sigmaWheel(e.deltaY<0?1:-1); },{passive:true});
+
+/* ============================ keyboard (original bindings) ============================ */
+addEventListener('keydown',e=>{
+  const tag=(e.target.tagName||'').toUpperCase();
+  if(tag==='INPUT'||tag==='SELECT'||tag==='TEXTAREA') return;
+  const k=e.key;
+  if(k==='ArrowLeft'){ actionChangeParams(-1); e.preventDefault(); }
+  else if(k==='ArrowRight'){ actionChangeParams(1); e.preventDefault(); }
+  else if(k==='ArrowUp'){ actionChangeSelectionIndex(-1); e.preventDefault(); }
+  else if(k==='ArrowDown'){ actionChangeSelectionIndex(1); e.preventDefault(); }
+  else if(k==='r'||k==='R'||k===' '){ actionRandomParams(); e.preventDefault(); }
+  else if(k==='s'||k==='S') actionSwapParams();
+  else if(k==='d'||k==='D') actionSpawnParticles(1);
+  else if(k==='f'||k==='F') actionSpawnParticles(2);
+  else if(k==='x'||k==='X') actionChangeSigmaCount(-1);
+  else if(k==='c'||k==='C') actionChangeSigmaCount(1);
+  else if(k==='w'||k==='W') actionTriggerWave();
+  else if(k==='a'||k==='A') actionChangeColorMode();
+  else if((k==='p'||k==='P'||k==='h'||k==='H') && !e.repeat){ showPen=!showPen; uiDirty=true; }
+  else if(k==='n'||k==='N'){ if(!e.repeat){ initParticles(N); toast('particles reset'); } }
+  else if(k==='g'||k==='G'){ if(!e.repeat && P.data){ P.playing=!P.playing; pcapSetUI(); } }
+  else if(k>='0'&&k<='9') actionSetPointIndex(k.charCodeAt(0)-48);
+  else if(k==='?'&&!e.repeat) toggleHelp();
+});
+
+/* ============================ gamepad ============================ */
+let padPrev=[], padSeen=false;
+function pollGamepad(){
+  const pads=navigator.getGamepads?navigator.getGamepads():[];
+  let gp=null; for(const p of pads){ if(p&&p.connected){ gp=p; break; } }
+  padPushing=false; L2pad=0;
+  if(!gp) return;
+  if(!padSeen){ padSeen=true; toast('gamepad connected 🎮'); }
+  const dz=v=>Math.abs(v)>0.18?v:0;
+  const lx=dz(gp.axes[0]||0), ly=dz(gp.axes[1]||0);
+  const rx=dz(gp.axes[2]||0), ry=dz(gp.axes[3]||0);
+  if(lx||ly){ curActionX=clamp(curActionX+lx*6.5,0,SIMW); curActionY=clamp(curActionY+ly*6.5,0,SIMH); }
+  if(rx||ry){ padPushing=true; mbTargetX=clamp(rx,-1,1); mbTargetY=clamp(ry,-1,1); }
+  L2pad=gp.buttons[6]?gp.buttons[6].value:0;
+  const edge=(i,fn)=>{ const pr=gp.buttons[i]&&gp.buttons[i].pressed; if(pr&&!padPrev[i])fn(); padPrev[i]=pr; };
+  edge(14,()=>actionChangeParams(-1)); edge(15,()=>actionChangeParams(1));
+  edge(12,()=>actionChangeSelectionIndex(-1)); edge(13,()=>actionChangeSelectionIndex(1));
+  edge(0,()=>actionSpawnParticles(1)); edge(1,()=>actionSpawnParticles(2));
+  edge(2,actionSwapParams); edge(3,actionChangeColorMode);
+  edge(4,()=>actionChangeSigmaCount(-1)); edge(5,()=>actionChangeSigmaCount(1));
+  edge(11,actionTriggerWave); edge(10,()=>{showPen=!showPen;uiDirty=true;});
+  edge(8,actionRandomParams); edge(9,toggleHelp);
+}
+
+/* ==================================================================== */
+/* 📡 Wi-Fi entropy: PCAP → simulation perturbation                      */
+/*   Each device (MAC) hashes to a stable identity: a home position,     */
+/*   a color, and a direction vector on the 15-parameter matrix.         */
+/*   Packets push the parameter field; events map to sim actions:        */
+/*   probe→scatter, deauth→wave, data burst→push, new device→ring.       */
+/* ==================================================================== */
+const P={ data:null, playing:false, clock:0, idx:0, speed:1, loop:true, follow:true, influence:0.5,
+  f0:new Float32Array(PARAMS_DIM), f1:new Float32Array(PARAMS_DIM),
+  pktRateEMA:0, pushT:-9, pushX:0, pushY:0, lastWave:-9, lastSpawn:-9, lastMouse:0 };
+const PKT_TYPE_NAMES=['beacon','probe','data','deauth','mgmt','ctrl'];
+
+function fnv32(str){ let h=0x811c9dc5; for(let i=0;i<str.length;i++){ h^=str.charCodeAt(i); h=Math.imul(h,0x01000193); } return h>>>0; }
+function fnv32b(b,n){ let h=0x811c9dc5; for(let i=0;i<n;i++){ h^=b[i]; h=Math.imul(h,0x01000193); } return h>>>0; }
+function mulberry32(seed){ let a=seed>>>0; return function(){ a|=0; a=(a+0x6D2B79F5)|0;
+  let t=Math.imul(a^(a>>>15),1|a); t=(t+Math.imul(t^(t>>>7),61|t))^t; return ((t^(t>>>14))>>>0)/4294967296; }; }
+const hex2=v=>v.toString(16).padStart(2,'0');
+function macStr(b,o){ return hex2(b[o])+':'+hex2(b[o+1])+':'+hex2(b[o+2])+':'+hex2(b[o+3])+':'+hex2(b[o+4])+':'+hex2(b[o+5]); }
+
+/* ---- radiotap: walk aligned fields of the first present word for dBm signal (bit 5) ---- */
+function radiotapSignal(b,rl){
+  if(rl<8||rl>b.length) return -128;
+  let pOff=4, nWords=0, first=0;
+  for(;;){
+    if(pOff+4>rl) return -128;
+    const w=(b[pOff]|(b[pOff+1]<<8)|(b[pOff+2]<<16)|(b[pOff+3]<<24))>>>0;
+    if(nWords===0) first=w;
+    nWords++; pOff+=4;
+    if(!(w&0x80000000)) break;
+    if(nWords>8) return -128;
+  }
+  if(!(first&(1<<5))) return -128;
+  const sizes=[8,1,1,4,2,1], aligns=[8,1,1,2,2,1];
+  let off=pOff;
+  for(let bit=0;bit<=5;bit++){
+    if(!(first&(1<<bit))) continue;
+    const a=aligns[bit]; off=(off+a-1)&~(a-1);
+    if(bit===5){ if(off>=rl) return -128; const v=b[off]; return v>127?v-256:v; }
+    off+=sizes[bit];
+  }
+  return -128;
+}
+
+/* ---- 802.11 frame: type classification, transmitter MAC, SSID tag ---- */
+function parse80211(b,o,n){
+  if(o+10>n) return {type:5,key:null,ssid:null};
+  const fc=b[o], ftype=(fc>>2)&3, sub=(fc>>4)&15;
+  let type=4;
+  if(ftype===0) type = (sub===8||sub===5)?0 : (sub===4?1 : ((sub===12||sub===10)?3:4));
+  else if(ftype===1) type=5;
+  else if(ftype===2) type=2;
+  let key=null;
+  if(ftype!==1 && o+16<=n) key=macStr(b,o+10);       // addr2 = transmitter
+  else if(o+10<=n) key=macStr(b,o+4);                // ctrl frames: addr1
+  let ssid=null;
+  if(ftype===0 && (sub===8||sub===5||sub===4)){
+    let to=o+24+(sub===4?0:12);                      // beacons/probe-resp: 12 fixed bytes
+    while(to+2<=n){
+      const id=b[to], l=b[to+1];
+      if(to+2+l>n) break;
+      if(id===0){
+        if(l>0&&l<=32){ let s='',ok=true;
+          for(let i=0;i<l;i++){ const ch=b[to+2+i]; if(ch<32||ch>126){ok=false;break;} s+=String.fromCharCode(ch); }
+          if(ok&&s.trim()) ssid=s;
+        }
+        break;
+      }
+      to+=2+l;
+    }
+  }
+  return {type,key,ssid};
+}
+
+/* ---- packet sink shared by both container formats ---- */
+function newPacketSink(){
+  const tsA=[],lenA=[],typA=[],devA=[],rssiA=[];
+  const devMap=new Map(), devices=[];
+  const HARDCAP=800000, KEEP=400000;
+  function deviceIdx(key){
+    let i=devMap.get(key);
+    if(i!==undefined) return i;
+    if(devices.length>=512){ i=fnv32(key)%devices.length; devMap.set(key,i); return i; }
+    i=devices.length; devMap.set(key,i);
+    const rng=mulberry32(fnv32(key));
+    const dir0=new Float32Array(PARAMS_DIM), dir1=new Float32Array(PARAMS_DIM);
+    for(let j=0;j<PARAMS_DIM;j++){ dir0[j]=rng()*2-1; dir1[j]=rng()*2-1; }
+    devices.push({ mac:key, ssid:null, seen:false, ema:0, hue:Math.floor(rng()*360),
+      x:60+rng()*(SIMW-120), y:60+rng()*(SIMH-120), dir0, dir1 });
+    return i;
+  }
+  function add(t,buf,off,n,lt){
+    if(tsA.length>=HARDCAP||n<1) return;
+    const b=new Uint8Array(buf,off,n);
+    let info, sig=-128;
+    if(lt===127&&n>8){ const rl=b[2]|(b[3]<<8);
+      sig=radiotapSignal(b,Math.min(rl,n));
+      info=(rl>0&&rl<n)?parse80211(b,rl,n):{type:5,key:null,ssid:null};
+    } else if(lt===105){ info=parse80211(b,0,n); }
+    else if(lt===1&&n>=14){ const et=(b[12]<<8)|b[13];
+      info={type: et===0x0806?1:((et===0x0800||et===0x86DD)?2:4), key:macStr(b,6), ssid:null};
+    } else { info={type:2, key:'g:'+fnv32b(b,Math.min(n,16)).toString(16), ssid:null}; }
+    const di=deviceIdx(info.key||'unknown');
+    if(info.ssid&&!devices[di].ssid) devices[di].ssid=info.ssid;
+    tsA.push(t); lenA.push(n); typA.push(info.type); devA.push(di); rssiA.push(sig);
+  }
+  function finish(){
+    if(!tsA.length) return {error:'no packets found',count:0};
+    const idxs=tsA.map((v,i)=>i).sort((a,b2)=>tsA[a]-tsA[b2]);
+    const stride=idxs.length>KEEP?Math.ceil(idxs.length/KEEP):1;
+    const m=Math.floor(idxs.length/stride)||1;
+    const ts=new Float64Array(m), len=new Uint32Array(m), typ=new Uint8Array(m), dev=new Uint16Array(m), rssi=new Int8Array(m);
+    for(let i=0,k=0;k<m;i+=stride,k++){ const s=idxs[i];
+      ts[k]=tsA[s]; len[k]=lenA[s]; typ[k]=typA[s]; dev[k]=devA[s]; rssi[k]=rssiA[s]; }
+    return {count:m, ts, len, typ, dev, rssi, devices, t0:ts[0], t1:ts[m-1], sampled:stride>1};
+  }
+  return {add,finish};
+}
+
+/* ---- container parsers: classic pcap + pcapng ---- */
+function parsePcap(buf){
+  const dv=new DataView(buf);
+  if(buf.byteLength<24) return {error:'file too small',count:0};
+  const magic=dv.getUint32(0,true);
+  if(magic===0x0A0D0D0A) return parsePcapNg(buf);
+  let le,nano=false;
+  if(magic===0xA1B2C3D4){le=true;}
+  else if(magic===0xD4C3B2A1){le=false;}
+  else if(magic===0xA1B23C4D){le=true;nano=true;}
+  else if(magic===0x4D3CB2A1){le=false;nano=true;}
+  else return {error:'not a pcap/pcapng file',count:0};
+  const linktype=dv.getUint32(20,le)&0xFFFF;
+  const sink=newPacketSink();
+  let off=24;
+  while(off+16<=buf.byteLength){
+    const sec=dv.getUint32(off,le), sub=dv.getUint32(off+4,le), incl=dv.getUint32(off+8,le);
+    off+=16;
+    if(incl>0x40000||off+incl>buf.byteLength) break;
+    sink.add(sec+sub/(nano?1e9:1e6), buf, off, incl, linktype);
+    off+=incl;
+  }
+  return sink.finish();
+}
+function parsePcapNg(buf){
+  const dv=new DataView(buf);
+  let off=0, le=true, lastTs=0;
+  const ifaces=[]; const sink=newPacketSink();
+  while(off+12<=buf.byteLength){
+    let btype=dv.getUint32(off,le);
+    if(btype===0x0A0D0D0A||dv.getUint32(off,!le)===0x0A0D0D0A){
+      le=(dv.getUint32(off+8,true)===0x1A2B3C4D);
+      btype=0x0A0D0D0A;
+    }
+    const blen=dv.getUint32(off+4,le);
+    if(blen<12||(blen&3)||off+blen>buf.byteLength) break;
+    if(btype===1){ // Interface Description Block
+      let tsres=1e-6;
+      const lt=dv.getUint16(off+8,le);
+      let o=off+16;
+      while(o+4<=off+blen-4){
+        const code=dv.getUint16(o,le), l=dv.getUint16(o+2,le);
+        if(code===0) break;
+        if(code===9&&l>=1){ const v=dv.getUint8(o+4); tsres=(v&0x80)?Math.pow(2,-(v&0x7f)):Math.pow(10,-v); }
+        o+=4+((l+3)&~3);
+      }
+      ifaces.push({lt,tsres});
+    } else if(btype===6&&blen>=32){ // Enhanced Packet Block
+      const ifid=dv.getUint32(off+8,le);
+      const th=dv.getUint32(off+12,le), tl=dv.getUint32(off+16,le);
+      const capl=dv.getUint32(off+20,le);
+      const itf=ifaces[ifid]||{lt:1,tsres:1e-6};
+      if(capl<=blen-32){
+        lastTs=(th*4294967296+tl)*itf.tsres;
+        sink.add(lastTs, buf, off+28, capl, itf.lt);
+      }
+    } else if(btype===3&&blen>=16){ // Simple Packet Block
+      const itf=ifaces[0]||{lt:1};
+      sink.add(lastTs+=0.001, buf, off+12, Math.min(dv.getUint32(off+8,le), blen-16), itf.lt);
+    }
+    off+=blen;
+  }
+  return sink.finish();
+}
+
+/* ---- playback + perturbation ---- */
+function loadPcapBuffer(buf,name){
+  let r;
+  try{ r=parsePcap(buf); }catch(e){ r={error:'parse error: '+e.message,count:0}; }
+  if(r.error||!r.count){ toast('⚠ '+(r.error||'no packets found')); return false; }
+  P.data=r; P.idx=0; P.clock=0; P.playing=true;
+  P.f0.fill(0); P.f1.fill(0); P.pktRateEMA=0;
+  const dur=Math.max(r.t1-r.t0,0.001);
+  P.speed=clamp(dur/120,1,512);                       // whole capture ≈ 2 minutes by default
+  $('pcapName').textContent=(name||'capture')+' — '+r.count.toLocaleString()+' pkts · '+fmtDur(dur)+(r.sampled?' (sampled)':'');
+  $('pcapCtrls').style.display='block';
+  $('pcapSpeed').value=clamp(Math.log2(P.speed/0.25)/0.11,0,100);
+  pcapSetUI();
+  toast('📡 '+r.count.toLocaleString()+' packets · '+r.devices.length+' devices · '+fmtDur(dur));
+  return true;
+}
+function fmtDur(s){ return s<90 ? Math.round(s)+'s' : Math.floor(s/60)+'m'+String(Math.round(s%60)).padStart(2,'0')+'s'; }
+
+function processPacket(i){
+  const d=P.data, dv=d.devices[d.dev[i]], t=getTime();
+  const rs=d.rssi[i];
+  const rf=rs>-127 ? map(clamp(rs,-90,-30),-90,-30,0.4,1.6) : 1.0;
+  const tw=[0.15,1.5,1.0,2.5,0.7,0.3][d.typ[i]]||1.0;
+  let w=tw*rf*clamp(d.len[i]/500,0.15,2);
+  w*=1/(1+P.pktRateEMA/40);                           // normalize by traffic rate
+  dv.ema=Math.min(dv.ema+w*0.5,3);
+  const g=0.13*w;
+  for(let j=0;j<PARAMS_DIM;j++){
+    P.f0[j]=clamp(P.f0[j]+dv.dir0[j]*g,-2.5,2.5);
+    P.f1[j]=clamp(P.f1[j]+dv.dir1[j]*g,-2.5,2.5);
+  }
+  const ty=d.typ[i];
+  if(ty===3 && t-P.lastWave>0.5){ P.lastWave=t; actionTriggerWave(dv.x,dv.y); pcapFeed('〰 deauth',dv); }
+  else if(ty===1 && t-P.lastSpawn>0.4){ P.lastSpawn=t; actionSpawnParticles(2,dv.x,dv.y); pcapFeed('✧ probe',dv); }
+  else if(!dv.seen){ dv.seen=true;
+    if(t-P.lastSpawn>0.4){ P.lastSpawn=t; actionSpawnParticles(1,dv.x,dv.y); }
+    pcapFeed('✦ new device',dv);
+  }
+  else if(ty===2 && d.len[i]>400){                    // data burst → push swarm toward the talker
+    P.pushT=t;
+    const dx=dv.x-curActionX, dy=dv.y-curActionY, m=Math.hypot(dx,dy)||1;
+    const s=clamp(d.len[i]/1500,0.25,1);
+    P.pushX=dx/m*s; P.pushY=dy/m*s;
+  }
+}
+
+function pcapTick(){
+  if(!P.data) return;
+  const d=P.data;
+  let pktsThis=0;
+  if(P.playing){
+    P.clock+=P.speed/60;
+    const tEnd=d.t0+P.clock;
+    while(P.idx<d.count && d.ts[P.idx]<=tEnd && pktsThis<2000){ processPacket(P.idx++); pktsThis++; }
+    if(P.idx>=d.count){
+      if(P.loop){ P.idx=0; P.clock=0; for(const dv of d.devices) dv.seen=true; }
+      else { P.playing=false; pcapSetUI(); }
+    }
+  }
+  P.pktRateEMA+=(pktsThis*60-P.pktRateEMA)*0.03;
+  for(let j=0;j<PARAMS_DIM;j++){ P.f0[j]*=0.97; P.f1[j]*=0.97; }
+  for(const dv of d.devices) dv.ema*=0.95;
+  // autopilot: pen drifts to the loudest device while the mouse is idle
+  if(P.playing&&P.follow&&performance.now()-P.lastMouse>2000){
+    let best=null;
+    for(const dv of d.devices) if(dv.ema>0.05&&(!best||dv.ema>best.ema)) best=dv;
+    if(best){ curActionX+=(best.x-curActionX)*0.04; curActionY+=(best.y-curActionY)*0.04; }
+  }
+  pcapPushing=P.playing&&(getTime()-P.pushT<0.25);
+  if(pcapPushing&&!dragPushing&&!padPushing){ mbTargetX=P.pushX; mbTargetY=P.pushY; }
+  if((frameNum&7)===0) updatePcapHUD();
+}
+
+function applyPcapEntropy(pen,bg){
+  if(!P.data) return;
+  const g=P.influence*0.55;
+  if(g<=0) return;
+  for(let j=0;j<PARAMS_DIM;j++){
+    pen[j]*=clamp(Math.exp(g*P.f0[j]),0.55,1.8);      // multiplicative: preserves zeros & scale
+    bg[j]*=clamp(Math.exp(g*P.f1[j]),0.55,1.8);
+  }
+}
+
+function pcapFeed(txt,dv){
+  $('pcapFeed').textContent=txt+' · '+dv.mac.slice(-8)+(dv.ssid?' · "'+dv.ssid+'"':'');
+}
+function updatePcapHUD(){
+  if(!P.data) return;
+  const d=P.data;
+  $('pcapProgFill').style.width=(clamp(P.clock/Math.max(d.t1-d.t0,0.001),0,1)*100).toFixed(1)+'%';
+  $('pcapStats').textContent=Math.round(P.pktRateEMA)+' pkt/s · '+d.devices.length+' devices · '+
+    Math.round(P.speed)+'× · influence '+Math.round(P.influence*100)+'%';
+}
+function pcapSetUI(){
+  $('pcapPlay').textContent=P.playing?'⏸':'▶';
+  $('pcapLoop').classList.toggle('on',P.loop);
+  $('pcapFollow').classList.toggle('on',P.follow);
+  $('pcapSpeedLbl').textContent=(P.speed<10?P.speed.toFixed(1):Math.round(P.speed))+'×';
+}
+
+async function loadPcapFile(f){
+  if(!f) return;
+  if(f.size>300e6){ toast('⚠ file too large (>300 MB)'); return; }
+  toast('parsing '+f.name+'…');
+  const buf=await f.arrayBuffer();
+  loadPcapBuffer(buf,f.name);
+}
+$('pcapBtn').addEventListener('click',()=>$('pcapFile').click());
+$('pcapFile').addEventListener('change',e=>{ loadPcapFile(e.target.files[0]); e.target.value=''; });
+addEventListener('dragover',e=>e.preventDefault());
+addEventListener('drop',e=>{ e.preventDefault(); if(e.dataTransfer&&e.dataTransfer.files[0]) loadPcapFile(e.dataTransfer.files[0]); });
+$('pcapPlay').addEventListener('click',()=>{ if(P.data){ P.playing=!P.playing; pcapSetUI(); } });
+$('pcapLoop').addEventListener('click',()=>{ P.loop=!P.loop; pcapSetUI(); });
+$('pcapFollow').addEventListener('click',()=>{ P.follow=!P.follow; pcapSetUI(); });
+$('pcapSpeed').addEventListener('input',e=>{ P.speed=0.25*Math.pow(2,e.target.value*0.11); pcapSetUI(); });
+$('pcapInf').addEventListener('input',e=>{ P.influence=e.target.value/100; });
+$('pcapProg').addEventListener('click',e=>{
+  if(!P.data) return;
+  const r=e.currentTarget.getBoundingClientRect?e.currentTarget.getBoundingClientRect():{left:0,width:e.currentTarget.clientWidth||1};
+  const frac=clamp((e.clientX-r.left)/(r.width||1),0,1);
+  P.clock=frac*(P.data.t1-P.data.t0);
+  let lo=0,hi=P.data.count;
+  const target=P.data.t0+P.clock;
+  while(lo<hi){ const mid=(lo+hi)>>1; if(P.data.ts[mid]<=target) lo=mid+1; else hi=mid; }
+  P.idx=lo;
+  updatePcapHUD();
+});
+addEventListener('pointermove',()=>{ P.lastMouse=performance.now(); });
+// tiny public API (e.g. for piping live captures in from a console/websocket)
+window.physarum={ loadPcapBuffer, pcap:P, setInfluence:v=>{P.influence=clamp(v,0,1);} };
+
+/* ============================ UI wiring ============================ */
+function toggleHelp(){ const h=$('help'); h.style.display=h.style.display==='block'?'none':'block'; }
+document.querySelectorAll('[data-a]').forEach(el=>{
+  el.addEventListener('click',()=>{
+    const a=el.dataset.a;
+    if(a==='p0-'){ currentSelectionIndex=0; actionChangeParams(-1); }
+    else if(a==='p0+'){ currentSelectionIndex=0; actionChangeParams(1); }
+    else if(a==='p1-'){ currentSelectionIndex=1; actionChangeParams(-1); }
+    else if(a==='p1+'){ currentSelectionIndex=1; actionChangeParams(1); }
+    else if(a==='random') actionRandomParams();
+    else if(a==='blend') actionRandomBlend();
+    else if(a==='swap') actionSwapParams();
+    else if(a==='color') actionChangeColorMode();
+    else if(a==='size-') actionChangeSigmaCount(-1);
+    else if(a==='size+') actionChangeSigmaCount(1);
+    else if(a==='wave') actionTriggerWave();
+    else if(a==='spawn1') actionSpawnParticles(1);
+    else if(a==='spawn2') actionSpawnParticles(2);
+    else if(a==='pen'){ showPen=!showPen; uiDirty=true; }
+    else if(a==='pause'){ paused=!paused; $('pauseBtn').textContent=paused?'▶':'⏸'; }
+    else if(a==='reset'){ initParticles(N); toast('particles reset'); }
+    else if(a==='shot') shotRequested=true;
+    else if(a==='fs'){ document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen(); }
+    else if(a==='help') toggleHelp();
+    el.blur();
+  });
+});
+$('pt0').addEventListener('click',e=>{ if(e.target.tagName!=='BUTTON'){ currentSelectionIndex=0; uiDirty=true; updateHUD(); }});
+$('pt1').addEventListener('click',e=>{ if(e.target.tagName!=='BUTTON'){ currentSelectionIndex=1; uiDirty=true; updateHUD(); }});
+$('pcount').addEventListener('change',e=>{ initParticles(parseInt(e.target.value,10)); toast((N/1e6).toFixed(1)+'M particles'); });
+$('inertia').addEventListener('input',e=>{ L2slider=e.target.value/100; });
+
+// auto-hide UI when idle
+let idleTimer=null;
+function poke(){ document.body.classList.remove('idle');
+  clearTimeout(idleTimer); idleTimer=setTimeout(()=>document.body.classList.add('idle'),3500); }
+addEventListener('pointermove',poke); addEventListener('pointerdown',poke); addEventListener('keydown',poke);
+poke();
+
+updateHUD();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
