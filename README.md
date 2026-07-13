@@ -9,6 +9,16 @@ Millions of agents deposit and follow trails. Their behavior parameters are modu
 - **🛰 Live receiver (real-time).** Click **connect receiver** to link a **Motoko radio-pipe** — an ESP8266 (D1 Mini) running the passive sniffer firmware — over USB. The 802.11 frames it hears drive the organism live, so you can leave it running as an ongoing installation. The link is **read-only**: the piece only ever *reads* the frames the radio hears; it never transmits, injects, or attacks. Needs a Chromium browser (Chrome / Edge / Brave) with Web Serial, served over HTTPS or `localhost`. No hardware? Hit **demo** to drive live mode with synthetic packets.
 - **Load a .pcap / .pcapng capture.** Drop a file to replay a captured radio session on a loop.
 
+## Modes — five ways to read the same air
+
+The icon row at the top of the 📡 panel picks how packets become art (each carries its own color palette). It applies to both live and PCAP.
+
+- **🌊 Currents** *(default)* — data traffic flows as currents across the canvas; deauths are squalls, probes scatter. An evolution of the original choreography.
+- **🌡 Presence** — signal strength dominates; the organism blooms toward whoever is physically near, and a searching phone (probe burst) pulls it close.
+- **✦ Constellation** — access points are stars; a probe seeking a known network lights its star, data draws links between talkers, deauths streak as shooting stars, and the physarum dims to a nebula.
+- **🎛 Spectrum** — Wi-Fi channels become colored horizontal lanes; devices sort into their channel and busy channels glow brighter.
+- **💓 Pulse** — traffic accumulates into a heartbeat; busy air beats faster, deauths land as heavy beats, and the whole field breathes with the rhythm.
+
 ## Run
 
 Open `index.html` — that's it. Press `?` in the app for full mouse / keyboard / touch / gamepad controls.
