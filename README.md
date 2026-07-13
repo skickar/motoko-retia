@@ -2,7 +2,12 @@
 
 *Making the unseen visible* — an interactive physarum organism driven by Wi-Fi packet entropy, running entirely in the browser (WebGL2, single HTML file, no dependencies).
 
-Millions of agents deposit and follow trails. Their behavior parameters are modulated by the sensed trail value, spatially blended between a **pen** (your cursor) and the **background**. Load a **.pcap / .pcapng** capture and the radio environment takes over: every device gets a stable identity from its MAC hash — a position, a color, and its own perturbation direction on the parameter matrix. Probe requests scatter-spawn, deauths fire waves, data bursts push the swarm toward the talker, and the pen wanders to whoever is loudest.
+Millions of agents deposit and follow trails. Their behavior parameters are modulated by the sensed trail value, spatially blended between a **pen** (your cursor) and the **background**. Feed it the radio environment and it takes over: every device gets a stable identity from its MAC hash — a position, a color, and its own perturbation direction on the parameter matrix. Probe requests scatter-spawn, deauths fire waves, data bursts push the swarm toward the talker, and the pen wanders to whoever is loudest.
+
+## Two ways to feed it
+
+- **🛰 Live receiver (real-time).** Click **connect receiver** to link a **Motoko radio-pipe** — an ESP8266 (D1 Mini) running the passive sniffer firmware — over USB. The 802.11 frames it hears drive the organism live, so you can leave it running as an ongoing installation. The link is **read-only**: the piece only ever *reads* the frames the radio hears; it never transmits, injects, or attacks. Needs a Chromium browser (Chrome / Edge / Brave) with Web Serial, served over HTTPS or `localhost`. No hardware? Hit **demo** to drive live mode with synthetic packets.
+- **Load a .pcap / .pcapng capture.** Drop a file to replay a captured radio session on a loop.
 
 ## Run
 
@@ -17,7 +22,7 @@ sudo tcpdump -I -i en0 -w capture.pcap
 sudo tcpdump -i wlan0mon -w capture.pcap
 ```
 
-Plain Ethernet captures work too. A console API exists for piping live data: `physarum.loadPcapBuffer(arrayBuffer, name)`.
+Plain Ethernet captures work too. Console API: `physarum.loadPcapBuffer(arrayBuffer, name)`, `physarum.connectReceiver()`, `physarum.startDemo()`, `physarum.stopLive()`.
 
 ## Credits & license
 

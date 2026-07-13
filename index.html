@@ -121,6 +121,20 @@
       <span id="pcapName" style="opacity:.6;font-size:11px">or drop a .pcap / .pcapng anywhere</span>
       <input type="file" id="pcapFile" accept=".pcap,.pcapng,.cap" style="display:none">
     </div>
+    <div class="prow" style="margin-top:6px">
+      <button class="btn" id="liveBtn" title="connect a Motoko receiver (ESP8266) over USB — Chrome/Edge/Brave, read-only">🛰 connect receiver</button>
+      <button class="btn" id="liveDemo" title="preview live mode with synthetic packets — no hardware needed">demo</button>
+      <span id="liveName" style="opacity:.6;font-size:11px">live 802.11 → organism</span>
+    </div>
+    <div id="liveCtrls" style="display:none">
+      <div class="prow">
+        <button class="btn" id="liveStop" title="disconnect / stop live">⏹ stop</button>
+        <button class="btn on" id="liveFollow" title="pen follows the loudest device when mouse is idle">🛰 follow</button>
+        <label>influence <input id="liveInf" type="range" min="0" max="100" value="50" style="width:64px"></label>
+      </div>
+      <div id="liveStats" style="opacity:.65;font-size:11px;margin-top:3px"></div>
+      <div id="liveFeed" style="opacity:.75;font-size:11px;margin-top:4px;min-height:13px;font-family:ui-monospace,monospace"></div>
+    </div>
     <div id="pcapCtrls" style="display:none">
       <div class="prow">
         <button class="btn" id="pcapPlay" title="play/pause capture (G)">⏸</button>
@@ -176,8 +190,10 @@
   </table>
   <h3>Gamepad (original was built for one)</h3>
   <p>Left stick: pen · Right stick: push particles · L2: inertia · D-pad: points · A/B: spawns · X: swap · Y: color · LB/RB: pen size · R-stick click: wave · Back: random.</p>
-  <h3>📡 Wi-Fi entropy (PCAP playback)</h3>
-  <p>Load or drop a <b>.pcap / .pcapng</b> capture (802.11 monitor-mode with radiotap works best; plain Ethernet works too) and the environment drives the piece. Every device gets a stable identity from its MAC hash — a home position, a color, and its own perturbation direction on the 15-parameter matrix. Traffic continuously drifts the pen &amp; background parameters (<b>influence</b> slider); <b>probe requests</b> scatter-spawn, <b>deauths</b> fire waves at the device, <b>data bursts</b> push the swarm toward the talker (RSSI scales weight), and new devices announce with a ring. With <b>follow</b> on, the pen wanders to whoever is loudest while your mouse is idle. <kbd>G</kbd> pauses playback. Console API: <code>physarum.loadPcapBuffer(arrayBuffer, name)</code>.</p>
+  <h3>📡 Wi-Fi entropy (live receiver + PCAP)</h3>
+  <p>Two ways to feed the organism the radio around you. <b>🛰 Connect receiver</b> links a <b>Motoko radio-pipe</b> (an ESP8266 running the passive sniffer firmware) over USB and plays the 802.11 frames it hears <b>live, in real time</b> — for an ongoing installation, just leave it connected. Or <b>load / drop a .pcap / .pcapng</b> capture to replay one. No hardware handy? <b>Demo</b> drives live mode with synthetic packets so you can rehearse.</p>
+  <p>Either way, every device gets a stable identity from its MAC hash — a home position, a color, and its own perturbation direction on the 15-parameter matrix. Traffic continuously drifts the pen &amp; background parameters (<b>influence</b> slider); <b>probe requests</b> scatter-spawn, <b>deauths</b> fire waves at the device, <b>data bursts</b> push the swarm toward the talker (RSSI scales weight), and new devices announce with a ring. With <b>follow</b> on, the pen wanders to whoever is loudest while your mouse is idle. <kbd>G</kbd> pauses PCAP playback.</p>
+  <p style="opacity:.75">The receiver link is <b>read-only</b>: the piece only ever <i>reads</i> the frames the radio hears — it never transmits, injects, or attacks. Live capture needs a Chromium browser (Chrome / Edge / Brave) with Web Serial, over HTTPS. Console API: <code>physarum.loadPcapBuffer(buf, name)</code>, <code>physarum.connectReceiver()</code>, <code>physarum.startDemo()</code>.</p>
   <p style="opacity:.7">Credits: <a href="https://github.com/Bleuje/interactive-physarum" target="_blank">interactive-physarum</a> by Etienne Jacob (Bleuje), technique &amp; parameters from <a href="https://www.sagejenson.com/36points/" target="_blank">36 Points</a> by Sage Jenson (mxsage). See Bleuje’s <a href="https://bleuje.com/physarum-explanation/" target="_blank">explanation article</a>. License CC BY-NC-SA 3.0.</p>
   <p><button class="btn" onclick="document.getElementById('help').style.display='none'">close</button></p>
 </div></div>
@@ -1220,7 +1236,8 @@ function pollGamepad(){
 /* ==================================================================== */
 const P={ data:null, playing:false, clock:0, idx:0, speed:1, loop:true, follow:true, influence:0.5,
   f0:new Float32Array(PARAMS_DIM), f1:new Float32Array(PARAMS_DIM),
-  pktRateEMA:0, pushT:-9, pushX:0, pushY:0, lastWave:-9, lastSpawn:-9, lastMouse:0 };
+  pktRateEMA:0, pushT:-9, pushX:0, pushY:0, lastWave:-9, lastSpawn:-9, lastMouse:0,
+  live:false, liveDevices:[], liveMap:new Map(), liveN:0 };
 const PKT_TYPE_NAMES=['beacon','probe','data','deauth','mgmt','ctrl'];
 
 function fnv32(str){ let h=0x811c9dc5; for(let i=0;i<str.length;i++){ h^=str.charCodeAt(i); h=Math.imul(h,0x01000193); } return h>>>0; }
@@ -1399,6 +1416,7 @@ function loadPcapBuffer(buf,name){
   let r;
   try{ r=parsePcap(buf); }catch(e){ r={error:'parse error: '+e.message,count:0}; }
   if(r.error||!r.count){ toast('⚠ '+(r.error||'no packets found')); return false; }
+  if(P.live) liveStop(true);                          // file playback & live receiver are exclusive
   P.data=r; P.idx=0; P.clock=0; P.playing=true;
   P.f0.fill(0); P.f1.fill(0); P.pktRateEMA=0;
   const dur=Math.max(r.t1-r.t0,0.001);
@@ -1441,10 +1459,11 @@ function processPacket(i){
 }
 
 function pcapTick(){
-  if(!P.data) return;
+  if(!P.data && !P.live) return;
   const d=P.data;
+  const devs = d ? d.devices : P.liveDevices;         // live packets share the same device model
   let pktsThis=0;
-  if(P.playing){
+  if(d && P.playing){
     P.clock+=P.speed/60;
     const tEnd=d.t0+P.clock;
     while(P.idx<d.count && d.ts[P.idx]<=tEnd && pktsThis<2000){ processPacket(P.idx++); pktsThis++; }
@@ -1453,22 +1472,24 @@ function pcapTick(){
       else { P.playing=false; pcapSetUI(); }
     }
   }
+  if(P.live){ pktsThis=P.liveN; P.liveN=0; }           // live packets arrived async between frames
   P.pktRateEMA+=(pktsThis*60-P.pktRateEMA)*0.03;
   for(let j=0;j<PARAMS_DIM;j++){ P.f0[j]*=0.97; P.f1[j]*=0.97; }
-  for(const dv of d.devices) dv.ema*=0.95;
+  for(const dv of devs) dv.ema*=0.95;
   // autopilot: pen drifts to the loudest device while the mouse is idle
-  if(P.playing&&P.follow&&performance.now()-P.lastMouse>2000){
+  const active = P.live || P.playing;
+  if(active&&P.follow&&performance.now()-P.lastMouse>2000){
     let best=null;
-    for(const dv of d.devices) if(dv.ema>0.05&&(!best||dv.ema>best.ema)) best=dv;
+    for(const dv of devs) if(dv.ema>0.05&&(!best||dv.ema>best.ema)) best=dv;
     if(best){ curActionX+=(best.x-curActionX)*0.04; curActionY+=(best.y-curActionY)*0.04; }
   }
-  pcapPushing=P.playing&&(getTime()-P.pushT<0.25);
+  pcapPushing=active&&(getTime()-P.pushT<0.25);
   if(pcapPushing&&!dragPushing&&!padPushing){ mbTargetX=P.pushX; mbTargetY=P.pushY; }
   if((frameNum&7)===0) updatePcapHUD();
 }
 
 function applyPcapEntropy(pen,bg){
-  if(!P.data) return;
+  if(!P.data && !P.live) return;
   const g=P.influence*0.55;
   if(g<=0) return;
   for(let j=0;j<PARAMS_DIM;j++){
@@ -1481,6 +1502,10 @@ function pcapFeed(txt,dv){
   $('pcapFeed').textContent=txt+' · '+dv.mac.slice(-8)+(dv.ssid?' · "'+dv.ssid+'"':'');
 }
 function updatePcapHUD(){
+  if(P.live){
+    $('liveStats').textContent=Math.round(P.pktRateEMA)+' pkt/s · '+P.liveDevices.length+' devices · influence '+Math.round(P.influence*100)+'%';
+    return;
+  }
   if(!P.data) return;
   const d=P.data;
   $('pcapProgFill').style.width=(clamp(P.clock/Math.max(d.t1-d.t0,0.001),0,1)*100).toFixed(1)+'%';
@@ -1522,8 +1547,163 @@ $('pcapProg').addEventListener('click',e=>{
   updatePcapHUD();
 });
 addEventListener('pointermove',()=>{ P.lastMouse=performance.now(); });
+
+/* ==================================================================== */
+/* 🛰 Live receiver: Motoko radio-pipe (ESP8266) → Web Serial → organism */
+/*   Read-only. The site only ever READS the 802.11 frames the receiver  */
+/*   hears; it never transmits, injects, or attacks. Live frames run      */
+/*   through the SAME 802.11 dissector and the SAME event choreography as */
+/*   PCAP playback, so the organism reacts to the live radio environment  */
+/*   exactly as it does to a capture — probe→scatter, deauth→wave,        */
+/*   data-burst→push, new device→ring — but now in real time.            */
+/* ==================================================================== */
+const LIVE={ port:null, reader:null, reading:false, demo:null, buf:new Uint8Array(4096), pos:0, esc:false };
+
+// live device registry — identical identity model to the PCAP packet sink
+function liveDeviceIdx(key){
+  let i=P.liveMap.get(key);
+  if(i!==undefined) return i;
+  if(P.liveDevices.length>=512){ i=fnv32(key)%P.liveDevices.length; P.liveMap.set(key,i); return i; }
+  i=P.liveDevices.length; P.liveMap.set(key,i);
+  const rng=mulberry32(fnv32(key));
+  const dir0=new Float32Array(PARAMS_DIM), dir1=new Float32Array(PARAMS_DIM);
+  for(let j=0;j<PARAMS_DIM;j++){ dir0[j]=rng()*2-1; dir1[j]=rng()*2-1; }
+  P.liveDevices.push({ mac:key, ssid:null, seen:false, ema:0, hue:Math.floor(rng()*360),
+    x:60+rng()*(SIMW-120), y:60+rng()*(SIMH-120), dir0, dir1 });
+  return i;
+}
+function liveFeed(txt,dv){ $('liveFeed').textContent=txt+' · '+dv.mac.slice(-8)+(dv.ssid?' · "'+dv.ssid+'"':''); }
+
+// one parsed packet → perturbation + event (mirror of processPacket, on the live registry)
+function liveProcess(ty,key,ssid,rssi,len){
+  if(!P.live) return;
+  const dv=P.liveDevices[liveDeviceIdx(key||'unknown')];
+  if(ssid && ssid!=='<HIDDEN>' && ssid!=='<UNKNOWN>' && !dv.ssid) dv.ssid=ssid;
+  const t=getTime();
+  const rf=rssi>-127 ? map(clamp(rssi,-90,-30),-90,-30,0.4,1.6) : 1.0;
+  const tw=[0.15,1.5,1.0,2.5,0.7,0.3][ty]||1.0;
+  let w=tw*rf*clamp(len/500,0.15,2);
+  w*=1/(1+P.pktRateEMA/40);                            // normalize by traffic rate
+  dv.ema=Math.min(dv.ema+w*0.5,3);
+  const g=0.13*w;
+  for(let j=0;j<PARAMS_DIM;j++){
+    P.f0[j]=clamp(P.f0[j]+dv.dir0[j]*g,-2.5,2.5);
+    P.f1[j]=clamp(P.f1[j]+dv.dir1[j]*g,-2.5,2.5);
+  }
+  if(ty===3 && t-P.lastWave>0.5){ P.lastWave=t; actionTriggerWave(dv.x,dv.y); liveFeed('〰 deauth',dv); }
+  else if(ty===1 && t-P.lastSpawn>0.4){ P.lastSpawn=t; actionSpawnParticles(2,dv.x,dv.y); liveFeed('✧ probe',dv); }
+  else if(!dv.seen){ dv.seen=true;
+    if(t-P.lastSpawn>0.4){ P.lastSpawn=t; actionSpawnParticles(1,dv.x,dv.y); }
+    liveFeed('✦ new device',dv);
+  }
+  else if(ty===2 && len>400){                          // data burst → push swarm toward the talker
+    P.pushT=t;
+    const dx=dv.x-curActionX, dy=dv.y-curActionY, m=Math.hypot(dx,dy)||1;
+    const s=clamp(len/1500,0.25,1);
+    P.pushX=dx/m*s; P.pushY=dy/m*s;
+  }
+  P.liveN++;
+}
+
+// Motoko firmware SLIP frame: [0]=0x03 PKT_RECV, [1]=rssi(dBm), [11]=chan nibble, [13..]=802.11
+function liveOnFrame(f,n){
+  if(n<14 || f[0]!==0x03) return;
+  const rssi=f[1]>127?f[1]-256:f[1];
+  const info=parse80211(f,13,n);                       // reuse the site's own 802.11 dissector
+  if(!info || info.key===null) return;
+  liveProcess(info.type, info.key, info.ssid, rssi, n-13);
+}
+// SLIP (RFC 1055) deframer over the incoming serial byte stream — receive only
+const SL_END=0xc0, SL_ESC=0xdb, SL_ESC_END=0xdc, SL_ESC_ESC=0xdd;
+function liveSlipPush(bytes){
+  for(let i=0;i<bytes.length;i++){
+    const b=bytes[i];
+    if(b===SL_END){ if(LIVE.pos>0){ liveOnFrame(LIVE.buf,LIVE.pos); LIVE.pos=0; } }
+    else if(b===SL_ESC){ LIVE.esc=true; }
+    else if(LIVE.esc){ if(b===SL_ESC_END) LIVE.buf[LIVE.pos++]=SL_END; else if(b===SL_ESC_ESC) LIVE.buf[LIVE.pos++]=SL_ESC; LIVE.esc=false; }
+    else LIVE.buf[LIVE.pos++]=b;
+    if(LIVE.pos>=LIVE.buf.length) LIVE.pos=0;           // overflow guard
+  }
+}
+
+function liveEnter(label){
+  if(P.data){ P.data=null; P.playing=false; $('pcapCtrls').style.display='none';
+    $('pcapName').textContent='or drop a .pcap / .pcapng anywhere'; }
+  P.live=true; P.liveN=0; P.f0.fill(0); P.f1.fill(0); P.pktRateEMA=0;
+  $('liveCtrls').style.display='block';
+  $('liveName').textContent=label;
+  $('liveFollow').classList.toggle('on',P.follow);
+}
+async function liveConnect(){
+  if(!('serial' in navigator)){ toast('⚠ Web Serial needs Chrome / Edge / Brave over HTTPS'); return; }
+  try{
+    liveStopDemo();
+    LIVE.port=await navigator.serial.requestPort();
+    await LIVE.port.open({ baudRate:1000000 });
+    LIVE.reading=true;
+    liveEnter('🛰 receiver linked · live');
+    toast('🛰 receiver linked — listening to the air');
+    liveReadLoop();
+  }catch(e){ toast('⚠ connection cancelled or failed'); }
+}
+async function liveReadLoop(){
+  while(LIVE.port && LIVE.port.readable && LIVE.reading){
+    LIVE.reader=LIVE.port.readable.getReader();
+    try{
+      for(;;){ const {value,done}=await LIVE.reader.read(); if(done) break; if(value) liveSlipPush(value); }
+    }catch(e){ /* transient read error — loop re-acquires the reader */ }
+    finally{ try{ LIVE.reader.releaseLock(); }catch(e){} }
+  }
+}
+async function liveDisconnect(){
+  LIVE.reading=false;
+  try{ if(LIVE.reader) await LIVE.reader.cancel(); }catch(e){}
+  try{ if(LIVE.port) await LIVE.port.close(); }catch(e){}
+  LIVE.port=null; LIVE.reader=null;
+}
+
+/* Demo mode: believable synthetic RF so live mode runs with no hardware (rehearsal) */
+function liveStartDemo(){
+  if(LIVE.demo) return;
+  liveEnter('demo · synthetic packets');
+  const rnd=mulberry32(0xc0ffee);
+  const rMac=()=>Array.from({length:6},()=>((rnd()*256)|0).toString(16).padStart(2,'0')).join(':');
+  const ssids=['Skynet','Pretty Fly for a WiFi','FBI Surveillance Van','Lab_5G','NETGEAR-Guest','linksys','MI6-Bakery','motoko-net','Tell My WiFi Love Her'];
+  const aps=Array.from({length:9},(_,i)=>({ ssid:ssids[i], mac:rMac(), rssi:-35-((rnd()*55)|0) }));
+  const probeSsids=['iPhone_of_Kody','Starbucks','HomeNet','attwifi','eduroam','Boeing_Guest','Marriott_LOBBY','AndroidAP',''];
+  const clients=Array.from({length:12},()=>rMac());
+  const jit=v=>Math.max(-95,Math.min(-30,v+((rnd()*8)|0)-4));
+  LIVE.demo=setInterval(()=>{
+    if(!P.live) return;
+    const roll=rnd();
+    if(roll<0.45){ const ap=aps[(rnd()*aps.length)|0]; liveProcess(0,ap.mac,ap.ssid,jit(ap.rssi),140+((rnd()*180)|0)); }
+    else if(roll<0.72){ liveProcess(1,clients[(rnd()*clients.length)|0],probeSsids[(rnd()*probeSsids.length)|0]||null,-50-((rnd()*45)|0),90+((rnd()*40)|0)); }
+    else if(roll<0.97){ liveProcess(2,clients[(rnd()*clients.length)|0],null,-45-((rnd()*45)|0),120+((rnd()*1200)|0)); }
+    else { const ap=aps[(rnd()*aps.length)|0], src=clients[(rnd()*clients.length)|0];
+      for(let i=0;i<6;i++) liveProcess(3,src,ap.ssid,jit(ap.rssi),26); }
+  },60);
+}
+function liveStopDemo(){ if(LIVE.demo){ clearInterval(LIVE.demo); LIVE.demo=null; } }
+
+function liveStop(quiet){
+  liveStopDemo();
+  liveDisconnect();
+  P.live=false;
+  $('liveCtrls').style.display='none';
+  $('liveName').textContent='live 802.11 → organism';
+  if(!quiet) toast('live stopped');
+}
+
+// live UI wiring
+$('liveBtn').addEventListener('click',liveConnect);
+$('liveDemo').addEventListener('click',()=>{ if(LIVE.demo) liveStop(); else liveStartDemo(); });
+$('liveStop').addEventListener('click',()=>liveStop());
+$('liveFollow').addEventListener('click',()=>{ P.follow=!P.follow; $('liveFollow').classList.toggle('on',P.follow); });
+$('liveInf').addEventListener('input',e=>{ P.influence=e.target.value/100; });
+
 // tiny public API (e.g. for piping live captures in from a console/websocket)
-window.physarum={ loadPcapBuffer, pcap:P, setInfluence:v=>{P.influence=clamp(v,0,1);} };
+window.physarum={ loadPcapBuffer, pcap:P, setInfluence:v=>{P.influence=clamp(v,0,1);},
+  connectReceiver:liveConnect, startDemo:liveStartDemo, stopLive:()=>liveStop() };
 
 /* ============================ UI wiring ============================ */
 function toggleHelp(){ const h=$('help'); h.style.display=h.style.display==='block'?'none':'block'; }
