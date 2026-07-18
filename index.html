@@ -1094,6 +1094,15 @@ function render(){
 
 /* ============================ overlay (pen ring + HUD) ============================ */
 /* ---- mode-aware overlay layers (drawn on the 2D canvas over the physarum) ---- */
+/* device-name labels — bigger, with a hold-and-fade so a name lingers ~4s after a device announces itself */
+const LABEL_HOLD=4.0;
+function labelPx(u){ return Math.max(13, Math.round(17*u)); }
+function labelFade(dv){ const dt=getTime()-(dv.labelT||-9); return dt<LABEL_HOLD ? clamp((LABEL_HOLD-dt)/1.3,0,1) : 0; }
+function drawLabel(text,x,y,px,alpha){
+  octx.font='600 '+px+'px ui-monospace,monospace';
+  octx.fillStyle='rgba(0,0,0,'+(0.62*alpha).toFixed(3)+')'; octx.fillText(text,x+1.3,y+1.3);   // shadow → legible on the busy organism
+  octx.fillStyle='rgba(255,255,255,'+(0.94*alpha).toFixed(3)+')'; octx.fillText(text,x,y);
+}
 function drawDeviceDots(w,h,u,devs){
   const uu=u*1.4;
   for(const dv of devs){
@@ -1102,11 +1111,8 @@ function drawDeviceDots(w,h,u,devs){
     const dx=dv.x/SIMW*w, dy=dv.y/SIMH*h;
     octx.beginPath(); octx.arc(dx,dy,(2.5+a*7)*uu,0,7);
     octx.fillStyle='hsla('+dv.hue+',85%,65%,'+(0.15+0.3*Math.min(a,1)).toFixed(3)+')'; octx.fill();
-    if(a>0.55){
-      octx.fillStyle='rgba(255,255,255,0.5)';
-      octx.font=Math.round(10*uu)+'px ui-monospace,monospace';
-      octx.fillText(dv.ssid||dv.mac.slice(-8), dx+9*uu, dy-7*uu);
-    }
+    const lf=labelFade(dv);
+    if(lf>0) drawLabel(dv.ssid||dv.mac.slice(-8), dx+11*u, dy-9*u, labelPx(u), lf);
   }
 }
 function drawLinksOverlay(w,h,u){
@@ -1141,8 +1147,9 @@ function drawStarsOverlay(w,h,u,devs){
       const g=r*2.6;
       octx.strokeStyle='hsla('+dv.hue+',65%,88%,'+(0.45*a).toFixed(3)+')'; octx.lineWidth=1*u;
       octx.beginPath(); octx.moveTo(dx-g,dy); octx.lineTo(dx+g,dy); octx.moveTo(dx,dy-g); octx.lineTo(dx,dy+g); octx.stroke();
-      if(b>1.7 && dv.ssid){ octx.fillStyle='rgba(255,255,255,0.5)'; octx.font=Math.round(9*u)+'px ui-monospace,monospace'; octx.fillText(dv.ssid, dx+g+2, dy-2); }
     }
+    const lf=labelFade(dv);
+    if(dv.isAP && dv.ssid && lf>0) drawLabel(dv.ssid, dx+r*2.6+4, dy-2, labelPx(u), lf);
   }
 }
 function drawSpectrumOverlay(w,h,u,devs){
@@ -1164,8 +1171,7 @@ function drawPresenceOverlay(w,h,u){
   if(!P.closeIdx) return; const dv=P.closeIdx;
   const dx=dv.x/SIMW*w, dy=dv.y/SIMH*h, pr=(16+8*Math.sin(getTime()*4))*u;
   octx.beginPath(); octx.arc(dx,dy,pr,0,7); octx.strokeStyle='rgba(255,180,120,0.6)'; octx.lineWidth=1.5*u; octx.stroke();
-  octx.fillStyle='rgba(255,215,175,0.75)'; octx.font=Math.round(10*u)+'px ui-monospace,monospace';
-  octx.fillText('◂ nearest · '+(dv.ssid||dv.mac.slice(-8)), dx+pr+4, dy+3);
+  drawLabel('◂ nearest · '+(dv.ssid||dv.mac.slice(-8)), dx+pr+6, dy+4, labelPx(u), 0.95);
 }
 function drawPulseOverlay(w,h,u,devs){
   if(!P.beatFlash) return; const age=(performance.now()-P.beatFlash)/700; if(age>=1) return;
@@ -1188,7 +1194,7 @@ function drawAirtimeOverlay(w,h,u,devs){
     const dx=dv.x/SIMW*w, dy=dv.y/SIMH*h, f=clamp(m/9000,0,1), r=(3+f*26)*u;
     octx.beginPath(); octx.arc(dx,dy,r,0,7);
     octx.fillStyle='hsla('+(210-f*200)+',80%,55%,'+(0.12+0.26*f).toFixed(3)+')'; octx.fill();
-    if(f>0.7){ octx.fillStyle='rgba(255,255,255,0.55)'; octx.font=Math.round(9*u)+'px ui-monospace,monospace'; octx.fillText(dv.ssid||dv.mac.slice(-8), dx+r+3, dy); }
+    if(f>0.6) drawLabel(dv.ssid||dv.mac.slice(-8), dx+r+5, dy+4, labelPx(u), Math.min(f,0.95));
   }
 }
 function drawMakersOverlay(w,h,u,devs){
@@ -1198,7 +1204,8 @@ function drawMakersOverlay(w,h,u,devs){
       octx.fillStyle=dv.randomized?'rgba(185,195,215,'+(0.08+0.16*a).toFixed(3)+')':'rgba(150,150,160,'+(0.10+0.18*a).toFixed(3)+')'; octx.fill();
     } else { octx.beginPath(); octx.arc(dx,dy,(2.5+a*7)*u*1.4,0,7);
       octx.fillStyle='hsla('+vh+',75%,60%,'+(0.18+0.32*a).toFixed(3)+')'; octx.fill();
-      if(a>0.6){ octx.fillStyle='rgba(255,255,255,0.6)'; octx.font=Math.round(10*u)+'px ui-monospace,monospace'; octx.fillText(dv.vendor,dx+9*u,dy-6*u); }
+      const lf=Math.max(labelFade(dv), a>0.6?0.85:0);
+      if(lf>0) drawLabel(dv.vendor, dx+11*u, dy-8*u, labelPx(u), lf);
     }
   }
 }
@@ -1594,7 +1601,7 @@ function newDevice(key){
   const x=60+rng()*(SIMW-120), y=60+rng()*(SIMH-120);
   return { mac:key, ssid:null, seen:false, ema:0, hue:Math.floor(rng()*360), channel:0, isAP:false, star:0,
     x, y, dir0, dir1,
-    vendor:oi.vendor, randomized:oi.rand, airtime:0, seq:0, bssid:null, roamT:-9,
+    vendor:oi.vendor, randomized:oi.rand, airtime:0, seq:0, bssid:null, roamT:-9, labelT:-9,
     cv:0.6, lastT:-1, gapMean:0, gapVar:0, gapN:0,
     px:x, py:y, rxRssi:new Float32Array([-100,-100,-100]) };
 }
@@ -1755,7 +1762,7 @@ function perturbField(d,g){
 }
 function firstSight(dv,t){
   if(dv.seen) return false;
-  dv.seen=true;
+  dv.seen=true; dv.labelT=t;
   if(t-P.lastSpawn>0.4){ P.lastSpawn=t; actionSpawnParticles(1,dv.x,dv.y); }
   return true;
 }
@@ -1775,6 +1782,7 @@ function dispatchPacket(dv,pk,t,feed){
   const ty=pk.ty, rssi=pk.rssi, len=pk.len, peerDv=pk.peer;   // read scratch → locals (no allocation)
   const rf = rssi>-127 ? clamp(map(rssi,-90,-30,0,1),0,1) : 0.5;   // 0 = far · 1 = right next to you
   const rate = 1/(1+P.pktRateEMA/40);                              // damp busy air so it never blows up
+  if(ty<=1) dv.labelT=t;                                           // beacon/probe = a device names itself → refresh its label
   if(P.rxN>1 || P.mode==='room'){                                  // maintain per-receiver signal for placement
     if(pk.rx>=0 && pk.rx<3) dv.rxRssi[pk.rx]+=(rssi-dv.rxRssi[pk.rx])*0.12;
   }
