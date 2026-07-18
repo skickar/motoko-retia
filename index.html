@@ -1150,10 +1150,17 @@ function drawShootingOverlay(w,h,u){
   }
 }
 function drawStarsOverlay(w,h,u,devs){
+  const t=getTime(), named=[];
   for(const dv of devs){
     const b=Math.min((dv.star||0)+dv.ema*0.35,4);
     if(b<=0.05) continue;
-    const dx=dv.x/SIMW*w, dy=dv.y/SIMH*h, r=(1.3+b*2.1)*u, a=Math.min(0.22+b*0.22,0.95);
+    const dx=dv.x/SIMW*w, dy=dv.y/SIMH*h;
+    const tw=0.78+0.22*Math.sin(t*1.7+dv.hue*0.37);      // gentle twinkle, stable phase per star
+    const r=(1.3+b*2.1)*u, a=Math.min(0.22+b*0.22,0.95)*tw;
+    if(b>0.8){                                            // soft bloom around brighter stars
+      octx.beginPath(); octx.arc(dx,dy,r*3.0,0,7);
+      octx.fillStyle='hsla('+dv.hue+',70%,72%,'+(0.045*b*tw).toFixed(3)+')'; octx.fill();
+    }
     octx.beginPath(); octx.arc(dx,dy,r,0,7);
     octx.fillStyle='hsla('+dv.hue+',65%,'+(dv.isAP?82:64)+'%,'+a.toFixed(3)+')'; octx.fill();
     if(dv.isAP && b>1){
@@ -1161,7 +1168,18 @@ function drawStarsOverlay(w,h,u,devs){
       octx.strokeStyle='hsla('+dv.hue+',65%,88%,'+(0.45*a).toFixed(3)+')'; octx.lineWidth=1*u;
       octx.beginPath(); octx.moveTo(dx-g,dy); octx.lineTo(dx+g,dy); octx.moveTo(dx,dy-g); octx.lineTo(dx,dy+g); octx.stroke();
     }
+    if(dv.isAP && dv.ssid && b>1.2) named.push({dv,dx,dy,b,r});
   }
+  // name only the brightest stars, tinted to each star's colour — a star chart, not a wall of text
+  named.sort((p,q)=>q.b-p.b);
+  octx.textAlign='left'; octx.textBaseline='alphabetic'; octx.letterSpacing='0.4px';
+  octx.font=Math.round(11*u)+'px ui-monospace,monospace';
+  const n=Math.min(named.length,18);
+  for(let i=0;i<n;i++){ const s=named[i], al=clamp((s.b-1.2)/2.2,0.28,0.82), lx=s.dx+s.r*2.6+4, ly=s.dy-2;
+    octx.fillStyle='rgba(0,0,0,'+(0.32*al).toFixed(3)+')'; octx.fillText(s.dv.ssid, lx+0.7, ly+0.7);
+    octx.fillStyle='hsla('+s.dv.hue+',48%,86%,'+al.toFixed(3)+')'; octx.fillText(s.dv.ssid, lx, ly);
+  }
+  octx.letterSpacing='0px';
 }
 function drawSpectrumOverlay(w,h,u,devs){
   for(let c=1;c<=14;c++){
