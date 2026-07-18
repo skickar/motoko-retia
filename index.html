@@ -26,6 +26,16 @@
     transition:opacity .5s;z-index:10;max-width:min(430px,92vw)}
   .idle #ui{opacity:0;pointer-events:none}
   .idle #credit{opacity:.3}
+  .clean #ui{display:none}                                          /* clean view — hide the whole menu (H brings it back) */
+  .modebtn.hid{opacity:.32;text-decoration:line-through}
+  #modeCap{position:fixed;left:50%;bottom:9px;transform:translateX(-50%);max-width:min(700px,70vw);
+    background:rgba(10,12,18,.66);backdrop-filter:blur(6px);border:1px solid rgba(255,255,255,.10);
+    border-radius:10px;padding:7px 12px;color:#e8e8ee;font-size:12.5px;z-index:12;display:none;
+    align-items:center;gap:10px;line-height:1.35;transition:opacity .4s}
+  #modeCap b{color:#fff}
+  #modeCapX{cursor:pointer;border:0;background:rgba(255,255,255,.12);color:#eee;border-radius:6px;
+    width:20px;height:20px;flex:none;font-size:13px;line-height:18px}
+  .idle #modeCap{opacity:.3}
   .panel{background:rgba(10,12,18,.62);backdrop-filter:blur(6px);border:1px solid rgba(255,255,255,.09);
     border-radius:10px;padding:7px 9px;color:#ddd;font-size:13px}
   .ptrow{display:flex;align-items:center;gap:6px;cursor:pointer;padding:2px 4px;border-radius:6px;white-space:nowrap}
@@ -69,7 +79,21 @@
   #pcapProgFill{height:100%;width:0%;background:rgba(120,180,255,.85);border-radius:3px}
   #pcapFeed{opacity:.75;font-size:11px;margin-top:4px;min-height:13px;font-family:ui-monospace,monospace}
   #pcapStats{opacity:.65;font-size:11px;margin-top:3px}
+  #flashModal{position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:22;display:none;overflow:auto;color:#ddd}
+  #flashModal .inner{max-width:560px;margin:6vh auto;background:rgba(16,18,26,.97);border:1px solid rgba(255,120,90,.35);
+    border-radius:14px;padding:20px 24px;font-size:13.5px;line-height:1.5}
+  #flashModal h2{margin:0 0 10px;color:#ff8a6d;font-size:17px}
+  #flashLog{background:#07090e;border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:10px;
+    font-size:11.5px;font-family:ui-monospace,monospace;max-height:220px;overflow:auto;white-space:pre-wrap;margin:10px 0 8px;min-height:20px}
+  .affirm{display:flex;gap:9px;align-items:flex-start;background:rgba(255,90,60,.08);border:1px solid rgba(255,90,60,.3);
+    border-radius:8px;padding:10px;margin:12px 0;cursor:pointer;font-size:12.5px;line-height:1.45}
+  .affirm input{margin-top:2px;flex:0 0 auto;width:15px;height:15px;accent-color:#f0503a}
 </style>
+<!-- esptool-js (ESM) — vendored locally so firmware install works even offline / at a con -->
+<script type="module">
+  try { const m = await import('./vendor/esptool-bundle.js'); window.esptooljs = { ESPLoader: m.ESPLoader, Transport: m.Transport }; }
+  catch (e) { console.warn('[flash] esptool not available:', e); }
+</script>
 </head>
 <body>
 <canvas id="c"></canvas>
@@ -116,15 +140,26 @@
     </label>
   </div>
   <div class="panel" id="pcapPanel">
-    <div class="prow" style="margin-top:0">
+    <div class="prow" id="modeRow" style="margin-top:0;flex-wrap:wrap;gap:4px"></div>
+    <div class="prow" style="margin-top:3px;gap:8px;align-items:center">
+      <span id="modeName" style="opacity:.6;font-size:11px">Currents</span>
+      <span style="flex:1"></span>
+      <button class="btn" id="cleanBtn" title="hide the whole menu for a clean view — press H to bring it back" style="padding:3px 8px;font-size:11px">🙈 hide menu</button>
+    </div>
+    <div class="prow" style="margin-top:6px">
       <button class="btn" id="pcapBtn">📡 load pcap</button>
       <span id="pcapName" style="opacity:.6;font-size:11px">or drop a .pcap / .pcapng anywhere</span>
       <input type="file" id="pcapFile" accept=".pcap,.pcapng,.cap" style="display:none">
     </div>
     <div class="prow" style="margin-top:6px">
       <button class="btn" id="liveBtn" title="connect a Motoko receiver (ESP8266) over USB — Chrome/Edge/Brave, read-only">🛰 connect receiver</button>
-      <button class="btn" id="liveDemo" title="preview live mode with synthetic packets — no hardware needed">demo</button>
+      <button class="btn" id="liveBtn3" title="connect 3 receivers parked on ch 1/6/11 — continuous full-band capture, no scanning">🛰×3</button>
+      <button class="btn" id="liveDemo" title="preview every mode with synthetic packets (simulates a 3-receiver rig) — no hardware needed">demo</button>
       <span id="liveName" style="opacity:.6;font-size:11px">live 802.11 → organism</span>
+    </div>
+    <div class="prow" style="margin-top:6px">
+      <button class="btn" id="flashBtn" title="install the Motoko radio-pipe firmware onto an ESP8266 / D1 Mini — transmit-capable, authorization required">⚡ flash a receiver</button>
+      <span style="opacity:.55;font-size:11px">first time? flash an ESP8266, then connect it</span>
     </div>
     <div id="liveCtrls" style="display:none">
       <div class="prow">
@@ -152,6 +187,18 @@
 </div>
 
 <div id="credit">recreation of <a href="https://github.com/Bleuje/interactive-physarum" target="_blank">Bleuje’s interactive-physarum</a> · parameters from <a href="https://www.sagejenson.com/36points/" target="_blank">mxsage’s “36 Points”</a> · CC BY-NC-SA 3.0</div>
+<div id="modeCap"><span id="modeCapText"></span><button id="modeCapX" title="hide caption (I)">×</button></div>
+<div id="flashModal"><div class="inner">
+  <h2>⚡ Install Motoko radio-pipe firmware</h2>
+  <p>Writes the <b>Motoko radio-pipe firmware</b> (266&nbsp;KB) to an <b>ESP8266 / D1 Mini</b> over USB, using esptool-js + Web Serial. Once it's flashed, hit <b>🛰 connect receiver</b> and this piece visualizes the 802.11 frames it hears — strictly read-only.</p>
+  <p style="color:#ff9377">The firmware is a promiscuous <b>radio pipe</b>: it ships <i>inert</i> and bundles no attack tooling, and this site only ever <i>reads</i> from it — but the firmware itself is <b>transmit-capable</b> (a host program can drive it to send 802.11 frames). Install it only where you're allowed to.</p>
+  <label class="affirm"><input type="checkbox" id="flashAffirm">
+    <span>I own, or am explicitly authorized to test, the hardware and RF I'll use this on. I understand that transmitting 802.11 frames against networks I don't own may be illegal.</span></label>
+  <p><button class="btn" id="flashGo" disabled>Start install</button>
+     <button class="btn" id="flashCancel">Close</button></p>
+  <pre id="flashLog"></pre>
+  <p style="opacity:.6;font-size:11.5px">Needs a Chromium browser (Chrome / Edge / Brave) with Web Serial, over HTTPS or localhost. Demo Mode and read-only visualization never touch this gate.</p>
+</div></div>
 <div id="toast"></div>
 
 <div id="help"><div class="inner">
@@ -177,7 +224,10 @@
     <tr><td>X / C</td><td>pen size − / +</td></tr>
     <tr><td>W</td><td>wave</td></tr>
     <tr><td>A</td><td>color mode</td></tr>
-    <tr><td>P or H</td><td>show/hide pen circle</td></tr>
+    <tr><td>P</td><td>show/hide pen circle</td></tr>
+    <tr><td>H</td><td>hide / show the menu (clean view)</td></tr>
+    <tr><td>[ ]</td><td>previous / next packet mode</td></tr>
+    <tr><td>I</td><td>show/hide the mode caption</td></tr>
     <tr><td>0–9</td><td>jump to Point A–J</td></tr>
     <tr><td>N</td><td>reset particles</td></tr>
   </table>
@@ -192,8 +242,24 @@
   <p>Left stick: pen · Right stick: push particles · L2: inertia · D-pad: points · A/B: spawns · X: swap · Y: color · LB/RB: pen size · R-stick click: wave · Back: random.</p>
   <h3>📡 Wi-Fi entropy (live receiver + PCAP)</h3>
   <p>Two ways to feed the organism the radio around you. <b>🛰 Connect receiver</b> links a <b>Motoko radio-pipe</b> (an ESP8266 running the passive sniffer firmware) over USB and plays the 802.11 frames it hears <b>live, in real time</b> — for an ongoing installation, just leave it connected. Or <b>load / drop a .pcap / .pcapng</b> capture to replay one. No hardware handy? <b>Demo</b> drives live mode with synthetic packets so you can rehearse.</p>
-  <p>Either way, every device gets a stable identity from its MAC hash — a home position, a color, and its own perturbation direction on the 15-parameter matrix. Traffic continuously drifts the pen &amp; background parameters (<b>influence</b> slider); <b>probe requests</b> scatter-spawn, <b>deauths</b> fire waves at the device, <b>data bursts</b> push the swarm toward the talker (RSSI scales weight), and new devices announce with a ring. With <b>follow</b> on, the pen wanders to whoever is loudest while your mouse is idle. <kbd>G</kbd> pauses PCAP playback.</p>
-  <p style="opacity:.75">The receiver link is <b>read-only</b>: the piece only ever <i>reads</i> the frames the radio hears — it never transmits, injects, or attacks. Live capture needs a Chromium browser (Chrome / Edge / Brave) with Web Serial, over HTTPS. Console API: <code>physarum.loadPcapBuffer(buf, name)</code>, <code>physarum.connectReceiver()</code>, <code>physarum.startDemo()</code>.</p>
+  <p>Don't have a receiver yet? <b>⚡ Flash a receiver</b> writes the firmware to a bare <b>ESP8266 / D1 Mini</b> straight from the browser (esptool-js + Web Serial), then connect it. The radio-pipe firmware ships inert and this piece only reads from it, but it is transmit-capable, so install asks you to affirm authorized use first.</p>
+  <p>Either way, every device gets a stable identity from its MAC hash — a home position, a color, and its own perturbation direction on the 15-parameter matrix. With <b>follow</b> on, the pen wanders on its own while your mouse is idle; the <b>influence</b> slider sets how hard the radio bends the organism. <kbd>G</kbd> pauses PCAP playback.</p>
+  <h3>Modes — ten ways to read the same air</h3>
+  <p>The row of icons at the top of the 📡 panel switches how packets become art (each also brings its own color palette). Try them under <b>Demo</b> — the synthetic feed exercises every one. A short caption at the bottom names the current mode's rule (dismiss with <kbd>I</kbd> or ×). Use <b>✎ curate</b> to hide the modes you don't want (it remembers your set), <b>🙈 hide menu</b> (or <kbd>H</kbd>) to hide the whole menu for a clean view — press <kbd>H</kbd> again to bring it back — and <kbd>[</kbd> <kbd>]</kbd> to flip between modes hands-free.</p>
+  <table>
+    <tr><td>🌊 <b>Currents</b></td><td>data traffic flows as currents across the canvas; deauths are squalls, probes scatter. The default.</td></tr>
+    <tr><td>🌡 <b>Presence</b></td><td>signal strength dominates — the organism blooms toward whoever is physically near.</td></tr>
+    <tr><td>✦ <b>Constellation</b></td><td>APs are stars; a probe lights its network's star; data draws links; deauths are shooting stars.</td></tr>
+    <tr><td>🎛 <b>Spectrum</b></td><td>Wi-Fi channels become colored horizontal lanes; busy channels glow brighter.</td></tr>
+    <tr><td>💓 <b>Pulse</b></td><td>traffic accumulates into a heartbeat; busy air beats faster and the field breathes.</td></tr>
+    <tr><td>🚨 <b>The Jammer</b></td><td>a deauth flood is an attacker — the swarm scatters, a red pathogen blooms. Broadcast deauths hit hardest.</td></tr>
+    <tr><td>🐋 <b>Airtime Barons</b></td><td>airtime claimed (Duration/NAV) becomes mass — a 4K stream grows gravitational; a sensor stays tiny.</td></tr>
+    <tr><td>🎵 <b>Metronomes &amp; Jazz</b></td><td>perfectly-timed machine traffic crystallizes into rigid lattice; bursty human traffic stays turbulent.</td></tr>
+    <tr><td>🏷 <b>Maker's Marks</b></td><td>the MAC's OUI sorts the swarm into species (Apple, Espressif, …); randomized MACs drift as grey ghosts.</td></tr>
+    <tr><td>📍 <b>Room of Bodies</b></td><td>with the 3-adapter rig, devices are placed in the physical room by signal strength and drift as people move. <i>(Demo simulates the rig.)</i></td></tr>
+  </table>
+  <p style="opacity:.85"><b>🛰×3 — three receivers, no scanning.</b> One receiver must hop channels and misses ~90% of the air; three parked on channels 1/6/11 capture the whole 2.4&nbsp;GHz band continuously. Click <b>🛰×3</b> and pick three Motoko boards in turn. For <b>Room of Bodies</b> localization specifically, spread the three receivers apart on the <i>same</i> channel instead — position is triangulated from how loud each hears a device (rough by nature — the shimmer is the art).</p>
+  <p style="opacity:.75">The receiver link is <b>read-only</b>: the piece only ever <i>reads</i> the frames the radio hears — it never transmits, injects, or attacks. Live capture needs a Chromium browser (Chrome / Edge / Brave) with Web Serial, over HTTPS. Console API: <code>physarum.loadPcapBuffer(buf, name)</code>, <code>physarum.connectReceiver()</code>, <code>physarum.connectRig()</code>, <code>physarum.startDemo()</code>, <code>physarum.setMode('metronomes')</code>.</p>
   <p style="opacity:.7">Credits: <a href="https://github.com/Bleuje/interactive-physarum" target="_blank">interactive-physarum</a> by Etienne Jacob (Bleuje), technique &amp; parameters from <a href="https://www.sagejenson.com/36points/" target="_blank">36 Points</a> by Sage Jenson (mxsage). See Bleuje’s <a href="https://bleuje.com/physarum-explanation/" target="_blank">explanation article</a>. License CC BY-NC-SA 3.0.</p>
   <p><button class="btn" onclick="document.getElementById('help').style.display='none'">close</button></p>
 </div></div>
@@ -1027,6 +1093,153 @@ function render(){
 }
 
 /* ============================ overlay (pen ring + HUD) ============================ */
+/* ---- mode-aware overlay layers (drawn on the 2D canvas over the physarum) ---- */
+function drawDeviceDots(w,h,u,devs){
+  const uu=u*1.4;
+  for(const dv of devs){
+    if(dv.ema<=0.04) continue;
+    const a=Math.min(dv.ema,1.2);
+    const dx=dv.x/SIMW*w, dy=dv.y/SIMH*h;
+    octx.beginPath(); octx.arc(dx,dy,(2.5+a*7)*uu,0,7);
+    octx.fillStyle='hsla('+dv.hue+',85%,65%,'+(0.15+0.3*Math.min(a,1)).toFixed(3)+')'; octx.fill();
+    if(a>0.55){
+      octx.fillStyle='rgba(255,255,255,0.5)';
+      octx.font=Math.round(10*uu)+'px ui-monospace,monospace';
+      octx.fillText(dv.ssid||dv.mac.slice(-8), dx+9*uu, dy-7*uu);
+    }
+  }
+}
+function drawLinksOverlay(w,h,u){
+  const now=getTime();
+  for(let i=P.links.length-1;i>=0;i--){ const L=P.links[i], age=now-L.t;
+    if(age>1.4){ P.links.splice(i,1); continue; }
+    const a=(1-age/1.4)*L.s;
+    octx.beginPath(); octx.moveTo(L.x1/SIMW*w,L.y1/SIMH*h); octx.lineTo(L.x2/SIMW*w,L.y2/SIMH*h);
+    octx.strokeStyle='hsla('+L.hue+',80%,70%,'+(0.5*a).toFixed(3)+')'; octx.lineWidth=(0.6+1.6*a)*u; octx.stroke();
+  }
+}
+function drawShootingOverlay(w,h,u){
+  const now=getTime();
+  for(let i=P.shooting.length-1;i>=0;i--){ const s=P.shooting[i], age=now-s.t;
+    if(age>0.9){ P.shooting.splice(i,1); continue; }
+    const p=age/0.9, a=1-p;
+    const hx=(s.x+s.dx*p)/SIMW*w, hy=(s.y+s.dy*p)/SIMH*h;
+    const q=Math.max(0,p-0.2), tx=(s.x+s.dx*q)/SIMW*w, tyy=(s.y+s.dy*q)/SIMH*h;
+    octx.beginPath(); octx.moveTo(tx,tyy); octx.lineTo(hx,hy);
+    octx.strokeStyle='rgba(255,240,205,'+(0.9*a).toFixed(3)+')'; octx.lineWidth=2*u; octx.stroke();
+    octx.beginPath(); octx.arc(hx,hy,2.2*u,0,7); octx.fillStyle='rgba(255,255,240,'+a.toFixed(3)+')'; octx.fill();
+  }
+}
+function drawStarsOverlay(w,h,u,devs){
+  for(const dv of devs){
+    const b=Math.min((dv.star||0)+dv.ema*0.35,4);
+    if(b<=0.05) continue;
+    const dx=dv.x/SIMW*w, dy=dv.y/SIMH*h, r=(1.3+b*2.1)*u, a=Math.min(0.22+b*0.22,0.95);
+    octx.beginPath(); octx.arc(dx,dy,r,0,7);
+    octx.fillStyle='hsla('+dv.hue+',65%,'+(dv.isAP?82:64)+'%,'+a.toFixed(3)+')'; octx.fill();
+    if(dv.isAP && b>1){
+      const g=r*2.6;
+      octx.strokeStyle='hsla('+dv.hue+',65%,88%,'+(0.45*a).toFixed(3)+')'; octx.lineWidth=1*u;
+      octx.beginPath(); octx.moveTo(dx-g,dy); octx.lineTo(dx+g,dy); octx.moveTo(dx,dy-g); octx.lineTo(dx,dy+g); octx.stroke();
+      if(b>1.7 && dv.ssid){ octx.fillStyle='rgba(255,255,255,0.5)'; octx.font=Math.round(9*u)+'px ui-monospace,monospace'; octx.fillText(dv.ssid, dx+g+2, dy-2); }
+    }
+  }
+}
+function drawSpectrumOverlay(w,h,u,devs){
+  for(let c=1;c<=14;c++){
+    const occ=P.chan[c]||0, y=chanBandY(c)/SIMH*h;
+    octx.strokeStyle='rgba(255,255,255,'+(0.03+0.10*Math.min(occ,1)).toFixed(3)+')'; octx.lineWidth=1;
+    octx.beginPath(); octx.moveTo(0,y); octx.lineTo(w,y); octx.stroke();
+    octx.fillStyle='hsla('+chanHue(c)+',75%,62%,'+(0.28+0.55*Math.min(occ,1)).toFixed(3)+')';
+    octx.font=Math.round(9*u)+'px ui-monospace,monospace'; octx.fillText('ch'+c, 5, y-2);
+  }
+  for(const dv of devs){
+    if(dv.ema<=0.04 || !dv.channel) continue;
+    const a=Math.min(dv.ema,1.2), dx=dv.x/SIMW*w, dy=chanBandY(dv.channel)/SIMH*h;
+    octx.beginPath(); octx.arc(dx,dy,(2+a*6)*u*1.3,0,7);
+    octx.fillStyle='hsla('+chanHue(dv.channel)+',85%,60%,'+(0.2+0.35*Math.min(a,1)).toFixed(3)+')'; octx.fill();
+  }
+}
+function drawPresenceOverlay(w,h,u){
+  if(!P.closeIdx) return; const dv=P.closeIdx;
+  const dx=dv.x/SIMW*w, dy=dv.y/SIMH*h, pr=(16+8*Math.sin(getTime()*4))*u;
+  octx.beginPath(); octx.arc(dx,dy,pr,0,7); octx.strokeStyle='rgba(255,180,120,0.6)'; octx.lineWidth=1.5*u; octx.stroke();
+  octx.fillStyle='rgba(255,215,175,0.75)'; octx.font=Math.round(10*u)+'px ui-monospace,monospace';
+  octx.fillText('◂ nearest · '+(dv.ssid||dv.mac.slice(-8)), dx+pr+4, dy+3);
+}
+function drawPulseOverlay(w,h,u,devs){
+  if(!P.beatFlash) return; const age=(performance.now()-P.beatFlash)/700; if(age>=1) return;
+  const c=centroid(devs), dx=c.x/SIMW*w, dy=c.y/SIMH*h;
+  octx.beginPath(); octx.arc(dx,dy,age*300*u,0,7);
+  octx.strokeStyle='rgba(255,120,90,'+(0.6*(1-age)).toFixed(3)+')'; octx.lineWidth=(3*(1-age)+0.5)*u; octx.stroke();
+}
+function drawJammerOverlay(w,h,u,devs){
+  drawDeviceDots(w,h,u,devs);
+  if(P.jam>0.05){ const a=clamp(P.jam/1.6,0,1);
+    const g=octx.createRadialGradient(w/2,h/2,h*0.15,w/2,h/2,h*0.78);
+    g.addColorStop(0,'rgba(255,30,20,0)'); g.addColorStop(1,'rgba(255,20,15,'+(0.30*a).toFixed(3)+')');
+    octx.fillStyle=g; octx.fillRect(0,0,w,h);
+    octx.fillStyle='rgba(255,90,70,'+(0.6+0.4*a).toFixed(2)+')'; octx.font='bold '+Math.round(14*u)+'px ui-monospace,monospace';
+    octx.fillText('⚠ DEAUTH FLOOD', 12, 24*u);
+  }
+}
+function drawAirtimeOverlay(w,h,u,devs){
+  for(const dv of devs){ const m=dv.airtime; if(m<200 && dv.ema<=0.05) continue;
+    const dx=dv.x/SIMW*w, dy=dv.y/SIMH*h, f=clamp(m/9000,0,1), r=(3+f*26)*u;
+    octx.beginPath(); octx.arc(dx,dy,r,0,7);
+    octx.fillStyle='hsla('+(210-f*200)+',80%,55%,'+(0.12+0.26*f).toFixed(3)+')'; octx.fill();
+    if(f>0.7){ octx.fillStyle='rgba(255,255,255,0.55)'; octx.font=Math.round(9*u)+'px ui-monospace,monospace'; octx.fillText(dv.ssid||dv.mac.slice(-8), dx+r+3, dy); }
+  }
+}
+function drawMakersOverlay(w,h,u,devs){
+  for(const dv of devs){ if(dv.ema<=0.05) continue;
+    const dx=dv.x/SIMW*w, dy=dv.y/SIMH*h, a=Math.min(dv.ema,1.2), vh=vendorHue(dv.vendor);
+    if(vh<0){ octx.beginPath(); octx.arc(dx,dy,(2.5+a*6)*u*1.4,0,7);
+      octx.fillStyle=dv.randomized?'rgba(185,195,215,'+(0.08+0.16*a).toFixed(3)+')':'rgba(150,150,160,'+(0.10+0.18*a).toFixed(3)+')'; octx.fill();
+    } else { octx.beginPath(); octx.arc(dx,dy,(2.5+a*7)*u*1.4,0,7);
+      octx.fillStyle='hsla('+vh+',75%,60%,'+(0.18+0.32*a).toFixed(3)+')'; octx.fill();
+      if(a>0.6){ octx.fillStyle='rgba(255,255,255,0.6)'; octx.font=Math.round(10*u)+'px ui-monospace,monospace'; octx.fillText(dv.vendor,dx+9*u,dy-6*u); }
+    }
+  }
+}
+function drawMetronomesOverlay(w,h,u,devs){
+  for(const dv of devs){ if(dv.ema<=0.05) continue;
+    const dx=dv.x/SIMW*w, dy=dv.y/SIMH*h, a=Math.min(dv.ema,1.2), per=clamp(1-dv.cv,0,1);
+    if(per>0.55){ const s=(3+a*6)*u; octx.fillStyle='rgba(120,220,255,'+(0.16+0.3*a).toFixed(3)+')'; octx.fillRect(dx-s,dy-s,s*2,s*2); }  // machine = crystal
+    else { octx.beginPath(); octx.arc(dx,dy,(2.5+a*6)*u,0,7); octx.fillStyle='hsla(30,85%,60%,'+(0.14+0.3*a).toFixed(3)+')'; octx.fill(); } // human = warm blob
+  }
+}
+function drawRxAnchors(w,h,u){
+  for(let k=0;k<P.rxN;k++){ const a=RX_ANCHORS[k], dx=a.x/SIMW*w, dy=a.y/SIMH*h;
+    octx.beginPath(); octx.arc(dx,dy,7*u,0,7); octx.strokeStyle='rgba(120,255,200,0.7)'; octx.lineWidth=2*u; octx.stroke();
+    octx.fillStyle='rgba(120,255,200,0.85)'; octx.font=Math.round(9*u)+'px ui-monospace,monospace'; octx.fillText('rx'+(k+1),dx+9*u,dy);
+  }
+}
+function drawRoomOverlay(w,h,u,devs){
+  drawRxAnchors(w,h,u);
+  for(const dv of devs){ if(dv.ema<=0.05) continue;
+    const dx=dv.px/SIMW*w, dy=dv.py/SIMH*h, a=Math.min(dv.ema,1.2);
+    octx.beginPath(); octx.arc(dx,dy,(2.5+a*7)*u*1.3,0,7);
+    octx.fillStyle=dv.isAP?'rgba(255,210,120,'+(0.2+0.3*a).toFixed(3)+')':'hsla('+dv.hue+',80%,65%,'+(0.15+0.3*a).toFixed(3)+')'; octx.fill();
+  }
+}
+function drawModeOverlay(w,h,u,devs){
+  switch(P.mode){
+    case 'constellation': drawLinksOverlay(w,h,u); drawStarsOverlay(w,h,u,devs); drawShootingOverlay(w,h,u); break;
+    case 'spectrum': drawSpectrumOverlay(w,h,u,devs); break;
+    case 'jammer': drawJammerOverlay(w,h,u,devs); break;
+    case 'airtime': drawAirtimeOverlay(w,h,u,devs); break;
+    case 'makers': drawMakersOverlay(w,h,u,devs); break;
+    case 'metronomes': drawMetronomesOverlay(w,h,u,devs); break;
+    case 'room': drawRoomOverlay(w,h,u,devs); break;
+    default:
+      drawDeviceDots(w,h,u,devs);
+      if(P.mode==='currents') drawLinksOverlay(w,h,u);
+      else if(P.mode==='presence') drawPresenceOverlay(w,h,u);
+      else if(P.mode==='pulse') drawPulseOverlay(w,h,u,devs);
+  }
+}
+
 function drawOverlay(){
   const w=ov.clientWidth, h=ov.clientHeight;
   octx.setTransform(OVDPR,0,0,OVDPR,0,0);
@@ -1041,23 +1254,9 @@ function drawOverlay(){
     octx.lineWidth=9*u*0.55; octx.strokeStyle='rgba(255,255,255,0.75)'; octx.stroke();
     octx.beginPath(); octx.arc(cx,cy,2.5*u+1,0,7); octx.fillStyle='rgba(255,255,255,0.8)'; octx.fill();
   }
-  // devices from the capture: stable positions, glow with their traffic
-  if(P.data){
-    const uu=u*1.4;
-    for(const dv of P.data.devices){
-      if(dv.ema<=0.04) continue;
-      const a=Math.min(dv.ema,1.2);
-      const dx=dv.x/SIMW*w, dy=dv.y/SIMH*h;
-      octx.beginPath(); octx.arc(dx,dy,(2.5+a*7)*uu,0,7);
-      octx.fillStyle='hsla('+dv.hue+',85%,65%,'+(0.15+0.3*Math.min(a,1)).toFixed(3)+')';
-      octx.fill();
-      if(a>0.55){
-        octx.fillStyle='rgba(255,255,255,0.5)';
-        octx.font=Math.round(10*uu)+'px ui-monospace,monospace';
-        octx.fillText(dv.ssid||dv.mac.slice(-8), dx+9*uu, dy-7*uu);
-      }
-    }
-  }
+  // devices + mode-specific layers (works for both PCAP capture and the live receiver)
+  const devs = P.data ? P.data.devices : (P.live ? P.liveDevices : null);
+  if(devs) drawModeOverlay(w,h,u,devs);
   const now=performance.now();
   for(let i=flashes.length-1;i>=0;i--){
     const f=flashes[i], a=(now-f.t)/500;
@@ -1196,7 +1395,11 @@ addEventListener('keydown',e=>{
   else if(k==='c'||k==='C') actionChangeSigmaCount(1);
   else if(k==='w'||k==='W') actionTriggerWave();
   else if(k==='a'||k==='A') actionChangeColorMode();
-  else if((k==='p'||k==='P'||k==='h'||k==='H') && !e.repeat){ showPen=!showPen; uiDirty=true; }
+  else if((k==='p'||k==='P') && !e.repeat){ showPen=!showPen; uiDirty=true; }
+  else if((k==='h'||k==='H') && !e.repeat) toggleClean();                 // hide the control panels (clean view)
+  else if((k==='i'||k==='I') && !e.repeat){ capHidden=!capHidden; updateCaption(); }  // toggle rules caption
+  else if(k==='['){ cycleMode(-1); }                                      // prev / next mode (skips hidden)
+  else if(k===']'){ cycleMode(1); }
   else if(k==='n'||k==='N'){ if(!e.repeat){ initParticles(N); toast('particles reset'); } }
   else if(k==='g'||k==='G'){ if(!e.repeat && P.data){ P.playing=!P.playing; pcapSetUI(); } }
   else if(k>='0'&&k<='9') actionSetPointIndex(k.charCodeAt(0)-48);
@@ -1237,8 +1440,34 @@ function pollGamepad(){
 const P={ data:null, playing:false, clock:0, idx:0, speed:1, loop:true, follow:true, influence:0.5,
   f0:new Float32Array(PARAMS_DIM), f1:new Float32Array(PARAMS_DIM),
   pktRateEMA:0, pushT:-9, pushX:0, pushY:0, lastWave:-9, lastSpawn:-9, lastMouse:0,
-  live:false, liveDevices:[], liveMap:new Map(), liveN:0 };
+  live:false, liveDevices:[], liveMap:new Map(), liveN:0,
+  // packet-driven art modes + their transient state
+  mode:'currents', links:[], shooting:[], chan:new Float32Array(15), ssidAP:new Map(), lastLink:-9,
+  pressure:0, lastBeat:-9, breath:0, beatFlash:0, closeIdx:null, closeRssi:-999, closeT:-9,
+  jam:0, jamT:-9, rxN:1 };
+// reused per-packet scratch — passed to dispatchPacket so the 2000-pkt/frame hot path allocates nothing
+const PK={ ty:0, rssi:-70, len:0, seq:0, dur:0, ac:-1, bcast:false, peer:null, rx:0 };
+// where the (up to 3) receivers sit in sim space — bodies are placed by signal strength across them
+const RX_ANCHORS=[{x:SIMW*0.16,y:SIMH*0.82},{x:SIMW*0.84,y:SIMH*0.82},{x:SIMW*0.5,y:SIMH*0.16}];
 const PKT_TYPE_NAMES=['beacon','probe','data','deauth','mgmt','ctrl'];
+/* Each mode is a distinct interpretation of the SAME radio: its own physarum
+   behaviour, colour palette, pen logic and overlay. color = index into colorModeNames. */
+const ART_MODES=[
+  {id:'currents',      name:'Currents',      icon:'🌊', color:1, desc:'data traffic flows as currents across the canvas; deauths are squalls, probes scatter'},
+  {id:'presence',      name:'Presence',      icon:'🌡', color:3, desc:'the organism leans toward whoever is physically nearest — signal strength is everything'},
+  {id:'constellation', name:'Constellation', icon:'✦',  color:4, desc:'access points are stars; a probe lights its network; data draws links; deauths streak as shooting stars'},
+  {id:'spectrum',      name:'Spectrum',      icon:'🎛', color:2, desc:'Wi-Fi channels become colored horizontal lanes; busy channels glow brighter'},
+  {id:'pulse',         name:'Pulse',         icon:'💓', color:5, desc:'traffic accumulates into a heartbeat — busy air beats faster and the whole field breathes'},
+  {id:'jammer',        name:'The Jammer',    icon:'🚨', color:5, desc:'a deauth flood is an attacker — the swarm scatters and a red pathogen blooms'},
+  {id:'airtime',       name:'Airtime Barons',icon:'🐋', color:7, desc:'airtime claimed (Duration/NAV) becomes mass — big talkers grow gravitational'},
+  {id:'metronomes',    name:'Metronomes & Jazz', icon:'🎵', color:0, desc:'periodic machine traffic crystallizes into rigid lattice; bursty human traffic stays turbulent'},
+  {id:'makers',        name:"Maker's Marks", icon:'🏷', color:9, desc:'the MAC vendor (OUI) sorts the swarm into species; randomized MACs drift as grey ghosts'},
+  {id:'room',          name:'Room of Bodies',icon:'📍', color:2, rig:true, desc:'devices placed in the physical room by signal across 3 receivers — bodies drift as people move'},
+];
+// curation state (persisted): which modes are hidden from the selector, + a caption toggle
+let curating=false, capHidden=false;
+const HIDDEN = (()=>{ try{ return new Set(JSON.parse(localStorage.getItem('motoko_hidden')||'[]')); }catch(e){ return new Set(); } })();
+function saveHidden(){ try{ localStorage.setItem('motoko_hidden', JSON.stringify([...HIDDEN])); }catch(e){} }
 
 function fnv32(str){ let h=0x811c9dc5; for(let i=0;i<str.length;i++){ h^=str.charCodeAt(i); h=Math.imul(h,0x01000193); } return h>>>0; }
 function fnv32b(b,n){ let h=0x811c9dc5; for(let i=0;i<n;i++){ h^=b[i]; h=Math.imul(h,0x01000193); } return h>>>0; }
@@ -1246,6 +1475,51 @@ function mulberry32(seed){ let a=seed>>>0; return function(){ a|=0; a=(a+0x6D2B7
   let t=Math.imul(a^(a>>>15),1|a); t=(t+Math.imul(t^(t>>>7),61|t))^t; return ((t^(t>>>14))>>>0)/4294967296; }; }
 const hex2=v=>v.toString(16).padStart(2,'0');
 function macStr(b,o){ return hex2(b[o])+':'+hex2(b[o+1])+':'+hex2(b[o+2])+':'+hex2(b[o+3])+':'+hex2(b[o+4])+':'+hex2(b[o+5]); }
+
+/* ---- OUI → manufacturer (compact, self-contained) + randomized-MAC detection ---- */
+const OUI_DB={
+  '00:03:93':'Apple','00:0a:95':'Apple','00:1b:63':'Apple','00:25:00':'Apple','3c:15:c2':'Apple','40:b3:95':'Apple',
+  '68:ab:bc':'Apple','8c:85:90':'Apple','a4:83:e7':'Apple','ac:bc:32':'Apple','d0:81:7a':'Apple','f0:18:98':'Apple',
+  'f8:1e:df':'Apple','dc:2b:2a':'Apple','a8:66:7f':'Apple','bc:52:b7':'Apple','9c:20:7b':'Apple',
+  '24:0a:c4':'Espressif','24:6f:28':'Espressif','30:ae:a4':'Espressif','3c:71:bf':'Espressif','7c:9e:bd':'Espressif',
+  '84:0d:8e':'Espressif','8c:aa:b5':'Espressif','a0:20:a6':'Espressif','a4:cf:12':'Espressif','b4:e6:2d':'Espressif',
+  'bc:dd:c2':'Espressif','cc:50:e3':'Espressif','d8:a0:1d':'Espressif','ec:fa:bc':'Espressif','5c:cf:7f':'Espressif',
+  '00:12:fb':'Samsung','00:1a:8a':'Samsung','08:37:3d':'Samsung','34:23:ba':'Samsung','5c:0a:5b':'Samsung',
+  '78:1f:db':'Samsung','8c:77:12':'Samsung','c8:19:f7':'Samsung','e8:50:8b':'Samsung','a0:75:91':'Samsung',
+  'b8:27:eb':'Raspberry Pi','dc:a6:32':'Raspberry Pi','e4:5f:01':'Raspberry Pi','28:cd:c1':'Raspberry Pi',
+  '3c:5a:b4':'Google','54:60:09':'Google','94:95:a0':'Google','a4:77:33':'Google','f4:f5:e8':'Google','d8:6c:63':'Google',
+  '00:1b:21':'Intel','34:13:e8':'Intel','3c:a9:f4':'Intel','7c:b0:c2':'Intel','8c:a9:82':'Intel','a0:88:b4':'Intel',
+  'dc:53:60':'Intel','f8:63:3f':'Intel','34:41:5d':'Intel',
+  '44:65:0d':'Amazon','68:37:e9':'Amazon','f0:81:73':'Amazon','fc:65:de':'Amazon','74:c2:46':'Amazon','50:dc:e7':'Amazon',
+  '50:c7:bf':'TP-Link','60:e3:27':'TP-Link','a4:2b:b0':'TP-Link','ec:08:6b':'TP-Link','b0:be:76':'TP-Link',
+  '00:18:0a':'Meraki','e0:cb:bc':'Meraki','88:15:44':'Cisco','00:1a:2f':'Cisco',
+  '00:12:5a':'Microsoft','28:18:78':'Microsoft','7c:1e:52':'Microsoft',
+};
+function ouiInfo(mac){
+  if(!mac||mac.length<8) return {vendor:'unknown',rand:false};
+  const first=parseInt(mac.slice(0,2),16);
+  if(Number.isFinite(first)&&(first&0x02)) return {vendor:'randomized',rand:true};   // locally-administered
+  return {vendor:OUI_DB[mac.slice(0,8)]||'unknown',rand:false};
+}
+function vendorHue(v){ if(v==='randomized'||v==='unknown') return -1; let h=0; for(const c of v) h=(h*31+c.charCodeAt(0))|0; return (h>>>0)%360; }
+
+// per-device inter-arrival regularity → cv (coefficient of variation): ~0 periodic (machine), >1 bursty (human)
+function updateRhythm(dv,t){
+  if(dv.lastT>=0){ const gap=t-dv.lastT;
+    if(gap>0.0005 && gap<20){ dv.gapN++;
+      const d=gap-dv.gapMean; dv.gapMean+=d*0.15; dv.gapVar+=(d*d-dv.gapVar)*0.15;
+      if(dv.gapN>4 && dv.gapMean>1e-4) dv.cv=clamp(Math.sqrt(Math.max(dv.gapVar,0))/dv.gapMean,0,2);
+    }
+  }
+  dv.lastT=t;
+}
+// place a device in sim space by its signal strength across the (up to 3) receivers
+function updatePos(dv){
+  let sx=0,sy=0,sw=0;
+  for(let k=0;k<P.rxN;k++){ const w=Math.pow(clamp(map(dv.rxRssi[k],-90,-30,0,1),0,1),2)+0.02; sx+=RX_ANCHORS[k].x*w; sy+=RX_ANCHORS[k].y*w; sw+=w; }
+  const tx = sw>0 ? sx/sw : dv.x, ty = sw>0 ? sy/sw : dv.y;
+  dv.px += (tx-dv.px)*0.08; dv.py += (ty-dv.py)*0.08;
+}
 
 /* ---- radiotap: walk aligned fields of the first present word for dBm signal (bit 5) ---- */
 function radiotapSignal(b,rl){
@@ -1273,49 +1547,66 @@ function radiotapSignal(b,rl){
 
 /* ---- 802.11 frame: type classification, transmitter MAC, SSID tag ---- */
 function parse80211(b,o,n){
-  if(o+10>n) return {type:5,key:null,ssid:null};
+  if(o+10>n) return {type:5,key:null,ssid:null,peer:null,channel:0,seq:0,dur:0,ac:-1,bcast:false};
   const fc=b[o], ftype=(fc>>2)&3, sub=(fc>>4)&15;
   let type=4;
   if(ftype===0) type = (sub===8||sub===5)?0 : (sub===4?1 : ((sub===12||sub===10)?3:4));
   else if(ftype===1) type=5;
   else if(ftype===2) type=2;
+  const dur=b[o+2]|(b[o+3]<<8);                       // Duration/NAV — µs of airtime this frame reserves
+  const a1 = o+10<=n ? macStr(b,o+4) : null;          // addr1 = receiver / destination
+  const bcast = a1==='ff:ff:ff:ff:ff:ff';
   let key=null;
   if(ftype!==1 && o+16<=n) key=macStr(b,o+10);       // addr2 = transmitter
-  else if(o+10<=n) key=macStr(b,o+4);                // ctrl frames: addr1
-  let ssid=null;
+  else if(a1) key=a1;                                // ctrl frames: addr1
+  const seq = (ftype!==1 && o+24<=n) ? ((b[o+22]|(b[o+23]<<8))>>4) : 0;  // 12-bit per-transmitter sequence
+  let peer=null;
+  if(ftype===2 && a1 && !bcast && a1.slice(0,8)!=='01:00:5e' && a1.slice(0,5)!=='33:33' && a1!==key) peer=a1;
+  let ac=-1;
+  if(ftype===2 && (sub&0x08) && o+26<=n){             // QoS data → TID → access category (0 BK,1 BE,2 VI,3 VO)
+    ac=[1,0,0,1,2,2,3,3][b[o+24]&0x07];
+  }
+  let ssid=null, channel=0;
   if(ftype===0 && (sub===8||sub===5||sub===4)){
     let to=o+24+(sub===4?0:12);                      // beacons/probe-resp: 12 fixed bytes
     while(to+2<=n){
       const id=b[to], l=b[to+1];
       if(to+2+l>n) break;
-      if(id===0){
+      if(id===0 && ssid===null){
         if(l>0&&l<=32){ let s='',ok=true;
           for(let i=0;i<l;i++){ const ch=b[to+2+i]; if(ch<32||ch>126){ok=false;break;} s+=String.fromCharCode(ch); }
           if(ok&&s.trim()) ssid=s;
         }
-        break;
-      }
+      } else if(id===3 && l>=1){ channel=b[to+2]; } // DS Parameter Set = operating channel
       to+=2+l;
+      if(ssid!==null && channel) break;               // stop early once we have both (SSID=IE0, DS=IE3)
     }
   }
-  return {type,key,ssid};
+  return {type,key,ssid,peer,channel,seq,dur,ac,bcast};
 }
 
 /* ---- packet sink shared by both container formats ---- */
+function newDevice(key){
+  const rng=mulberry32(fnv32(key));
+  const dir0=new Float32Array(PARAMS_DIM), dir1=new Float32Array(PARAMS_DIM);
+  for(let j=0;j<PARAMS_DIM;j++){ dir0[j]=rng()*2-1; dir1[j]=rng()*2-1; }
+  const oi=ouiInfo(key);
+  const x=60+rng()*(SIMW-120), y=60+rng()*(SIMH-120);
+  return { mac:key, ssid:null, seen:false, ema:0, hue:Math.floor(rng()*360), channel:0, isAP:false, star:0,
+    x, y, dir0, dir1,
+    vendor:oi.vendor, randomized:oi.rand, airtime:0, seq:0, bssid:null, roamT:-9,
+    cv:0.6, lastT:-1, gapMean:0, gapVar:0, gapN:0,
+    px:x, py:y, rxRssi:new Float32Array([-100,-100,-100]) };
+}
 function newPacketSink(){
-  const tsA=[],lenA=[],typA=[],devA=[],rssiA=[];
+  const tsA=[],lenA=[],typA=[],devA=[],rssiA=[],peerA=[],seqA=[],durA=[],acA=[],bcA=[];
   const devMap=new Map(), devices=[];
   const HARDCAP=800000, KEEP=400000;
   function deviceIdx(key){
     let i=devMap.get(key);
     if(i!==undefined) return i;
     if(devices.length>=512){ i=fnv32(key)%devices.length; devMap.set(key,i); return i; }
-    i=devices.length; devMap.set(key,i);
-    const rng=mulberry32(fnv32(key));
-    const dir0=new Float32Array(PARAMS_DIM), dir1=new Float32Array(PARAMS_DIM);
-    for(let j=0;j<PARAMS_DIM;j++){ dir0[j]=rng()*2-1; dir1[j]=rng()*2-1; }
-    devices.push({ mac:key, ssid:null, seen:false, ema:0, hue:Math.floor(rng()*360),
-      x:60+rng()*(SIMW-120), y:60+rng()*(SIMH-120), dir0, dir1 });
+    i=devices.length; devMap.set(key,i); devices.push(newDevice(key));
     return i;
   }
   function add(t,buf,off,n,lt){
@@ -1327,21 +1618,28 @@ function newPacketSink(){
       info=(rl>0&&rl<n)?parse80211(b,rl,n):{type:5,key:null,ssid:null};
     } else if(lt===105){ info=parse80211(b,0,n); }
     else if(lt===1&&n>=14){ const et=(b[12]<<8)|b[13];
-      info={type: et===0x0806?1:((et===0x0800||et===0x86DD)?2:4), key:macStr(b,6), ssid:null};
-    } else { info={type:2, key:'g:'+fnv32b(b,Math.min(n,16)).toString(16), ssid:null}; }
-    const di=deviceIdx(info.key||'unknown');
-    if(info.ssid&&!devices[di].ssid) devices[di].ssid=info.ssid;
-    tsA.push(t); lenA.push(n); typA.push(info.type); devA.push(di); rssiA.push(sig);
+      info={type: et===0x0806?1:((et===0x0800||et===0x86DD)?2:4), key:macStr(b,6), ssid:null}; }
+    else { info={type:2, key:'g:'+fnv32b(b,Math.min(n,16)).toString(16), ssid:null}; }
+    const di=deviceIdx(info.key||'unknown'), dv=devices[di];
+    if(info.ssid&&!dv.ssid) dv.ssid=info.ssid;
+    if(info.channel) dv.channel=info.channel;
+    if(info.type===0) dv.isAP=true;
+    updateRhythm(dv,t);                                 // capture-order timing ≈ chronological in pcap
+    const pi = info.peer ? deviceIdx(info.peer) : 0xFFFF;
+    tsA.push(t); lenA.push(n); typA.push(info.type); devA.push(di); rssiA.push(sig); peerA.push(pi);
+    seqA.push(info.seq||0); durA.push(info.dur||0); acA.push(info.ac==null?-1:info.ac); bcA.push(info.bcast?1:0);
   }
   function finish(){
     if(!tsA.length) return {error:'no packets found',count:0};
     const idxs=tsA.map((v,i)=>i).sort((a,b2)=>tsA[a]-tsA[b2]);
     const stride=idxs.length>KEEP?Math.ceil(idxs.length/KEEP):1;
     const m=Math.floor(idxs.length/stride)||1;
-    const ts=new Float64Array(m), len=new Uint32Array(m), typ=new Uint8Array(m), dev=new Uint16Array(m), rssi=new Int8Array(m);
+    const ts=new Float64Array(m), len=new Uint32Array(m), typ=new Uint8Array(m), dev=new Uint16Array(m), rssi=new Int8Array(m),
+      peer=new Uint16Array(m), seq=new Uint16Array(m), dur=new Uint16Array(m), ac=new Int8Array(m), bcast=new Uint8Array(m);
     for(let i=0,k=0;k<m;i+=stride,k++){ const s=idxs[i];
-      ts[k]=tsA[s]; len[k]=lenA[s]; typ[k]=typA[s]; dev[k]=devA[s]; rssi[k]=rssiA[s]; }
-    return {count:m, ts, len, typ, dev, rssi, devices, t0:ts[0], t1:ts[m-1], sampled:stride>1};
+      ts[k]=tsA[s]; len[k]=lenA[s]; typ[k]=typA[s]; dev[k]=devA[s]; rssi[k]=rssiA[s]; peer[k]=peerA[s];
+      seq[k]=seqA[s]; dur[k]=durA[s]; ac[k]=acA[s]; bcast[k]=bcA[s]; }
+    return {count:m, ts, len, typ, dev, rssi, peer, seq, dur, ac, bcast, devices, t0:ts[0], t1:ts[m-1], sampled:stride>1};
   }
   return {add,finish};
 }
@@ -1426,36 +1724,216 @@ function loadPcapBuffer(buf,name){
   $('pcapSpeed').value=clamp(Math.log2(P.speed/0.25)/0.11,0,100);
   pcapSetUI();
   toast('📡 '+r.count.toLocaleString()+' packets · '+r.devices.length+' devices · '+fmtDur(dur));
+  updateCaption();
   return true;
 }
 function fmtDur(s){ return s<90 ? Math.round(s)+'s' : Math.floor(s/60)+'m'+String(Math.round(s%60)).padStart(2,'0')+'s'; }
 
-function processPacket(i){
-  const d=P.data, dv=d.devices[d.dev[i]], t=getTime();
-  const rs=d.rssi[i];
-  const rf=rs>-127 ? map(clamp(rs,-90,-30),-90,-30,0.4,1.6) : 1.0;
-  const tw=[0.15,1.5,1.0,2.5,0.7,0.3][d.typ[i]]||1.0;
-  let w=tw*rf*clamp(d.len[i]/500,0.15,2);
-  w*=1/(1+P.pktRateEMA/40);                           // normalize by traffic rate
-  dv.ema=Math.min(dv.ema+w*0.5,3);
-  const g=0.13*w;
+/* ==================================================================== */
+/* Art modes — five ways to turn the same packets into the same organism */
+/*   Every mode perturbs the shared 15-param field (dir0→pen, dir1→bg)   */
+/*   but decides intensity, events, pen behaviour, palette & overlay in  */
+/*   its own voice. Fed by both PCAP playback and the live receiver.     */
+/* ==================================================================== */
+function chanBandY(ch){ return map(clamp(ch||7,1,14),1,14,SIMH*0.14,SIMH*0.86); }
+function chanHue(ch){ return ((clamp(ch||7,1,14)-1)*25+200)%360; }
+function addLink(a,b,s,kind){
+  if(!a||!b||a===b) return;
+  const t=getTime();
+  if(t-P.lastLink<0.03) return;                       // cap link spawns (~33/s) so fast playback can't flood GC
+  P.lastLink=t;
+  const useP = P.mode==='room';                       // spatial mode links physical positions
+  P.links.push({x1:useP?a.px:a.x, y1:useP?a.py:a.y, x2:useP?b.px:b.x, y2:useP?b.py:b.y, hue:a.hue, t:t, s:s, kind:kind});
+  if(P.links.length>240) P.links.splice(0,P.links.length-240);
+}
+// hoisted out of dispatchPacket: no per-packet closure allocation in the 2000-pkt/frame hot path
+function perturbField(d,g){
   for(let j=0;j<PARAMS_DIM;j++){
-    P.f0[j]=clamp(P.f0[j]+dv.dir0[j]*g,-2.5,2.5);
-    P.f1[j]=clamp(P.f1[j]+dv.dir1[j]*g,-2.5,2.5);
+    P.f0[j]=clamp(P.f0[j]+d.dir0[j]*g,-2.5,2.5);
+    P.f1[j]=clamp(P.f1[j]+d.dir1[j]*g,-2.5,2.5);
   }
-  const ty=d.typ[i];
-  if(ty===3 && t-P.lastWave>0.5){ P.lastWave=t; actionTriggerWave(dv.x,dv.y); pcapFeed('〰 deauth',dv); }
-  else if(ty===1 && t-P.lastSpawn>0.4){ P.lastSpawn=t; actionSpawnParticles(2,dv.x,dv.y); pcapFeed('✧ probe',dv); }
-  else if(!dv.seen){ dv.seen=true;
-    if(t-P.lastSpawn>0.4){ P.lastSpawn=t; actionSpawnParticles(1,dv.x,dv.y); }
-    pcapFeed('✦ new device',dv);
+}
+function firstSight(dv,t){
+  if(dv.seen) return false;
+  dv.seen=true;
+  if(t-P.lastSpawn>0.4){ P.lastSpawn=t; actionSpawnParticles(1,dv.x,dv.y); }
+  return true;
+}
+function shootStar(dv,t){
+  P.shooting.push({x:dv.x,y:dv.y,dx:(60+Math.random()*130)*(Math.random()<0.5?-1:1),dy:110+Math.random()*190,t:t});
+  if(P.shooting.length>40) P.shooting.splice(0,P.shooting.length-40);
+}
+function centroid(devs){
+  let sx=0,sy=0,sw=0;
+  for(const dv of devs){ const w=dv.ema; if(w>0.05){ sx+=dv.x*w; sy+=dv.y*w; sw+=w; } }
+  return sw>0?{x:sx/sw,y:sy/sw}:{x:curActionX,y:curActionY};
+}
+
+// one packet → perturbation + events, dispatched by the active mode.
+// Hot path (up to 2000 pkts/frame): no per-packet allocations — perturbField/firstSight are hoisted.
+function dispatchPacket(dv,pk,t,feed){
+  const ty=pk.ty, rssi=pk.rssi, len=pk.len, peerDv=pk.peer;   // read scratch → locals (no allocation)
+  const rf = rssi>-127 ? clamp(map(rssi,-90,-30,0,1),0,1) : 0.5;   // 0 = far · 1 = right next to you
+  const rate = 1/(1+P.pktRateEMA/40);                              // damp busy air so it never blows up
+  if(P.rxN>1 || P.mode==='room'){                                  // maintain per-receiver signal for placement
+    if(pk.rx>=0 && pk.rx<3) dv.rxRssi[pk.rx]+=(rssi-dv.rxRssi[pk.rx])*0.12;
   }
-  else if(ty===2 && d.len[i]>400){                    // data burst → push swarm toward the talker
-    P.pushT=t;
-    const dx=dv.x-curActionX, dy=dv.y-curActionY, m=Math.hypot(dx,dy)||1;
-    const s=clamp(d.len[i]/1500,0.25,1);
-    P.pushX=dx/m*s; P.pushY=dy/m*s;
+
+  switch(P.mode){
+
+  case 'jammer': {                                     // sustained/broadcast deauth = an attacker in the room
+    perturbField(dv,0.06*(0.3+rf)*rate); dv.ema=Math.min(dv.ema+0.2*(0.3+rf),3);
+    if(ty===3){ P.jam=Math.min(P.jam + (pk.bcast?0.22:0.08), 1.6); P.jamT=t;
+      if(t-P.lastWave>0.18){ P.lastWave=t; actionTriggerWave(dv.x,dv.y); }
+      if(pk.bcast && t-P.lastSpawn>0.3){ P.lastSpawn=t; actionSpawnParticles(2,dv.x,dv.y); }
+      if(feed)feed(pk.bcast?'🚨 BROADCAST deauth':'✖ deauth',dv);
+    } else firstSight(dv,t);
+    break; }
+
+  case 'airtime': {                                    // Duration/NAV = airtime claimed → mass
+    dv.airtime += pk.dur + len*0.15; dv.ema=Math.min(dv.ema+0.3*(0.3+rf),3);
+    perturbField(dv,(0.06+0.10*clamp(dv.airtime/40000,0,1))*rate);
+    if(ty===2 && dv.airtime>8000){                      // a baron drags the swarm into its orbit
+      P.pushT=t; const dx=dv.x-curActionX, dy=dv.y-curActionY, m=Math.hypot(dx,dy)||1, s=clamp(dv.airtime/40000,0.3,1);
+      P.pushX=dx/m*s; P.pushY=dy/m*s;
+    }
+    firstSight(dv,t);
+    break; }
+
+  case 'metronomes': {                                 // periodic machines crystallize; human bursts stay turbulent
+    const periodic=clamp(1-dv.cv,0,1);                  // 1 = metronome, 0 = jazz
+    dv.ema=Math.min(dv.ema+0.3*(0.3+rf),3);
+    // periodic traffic pushes params toward a rigid lattice (few discrete values); bursty stays free
+    if(periodic>0.55){ const g=0.12*(0.3+rf)*rate;
+      for(let j=0;j<PARAMS_DIM;j++){ const q=Math.round(dv.dir0[j]); P.f0[j]=clamp(P.f0[j]+(q-P.f0[j])*g,-2.5,2.5); P.f1[j]=clamp(P.f1[j]+(Math.round(dv.dir1[j])-P.f1[j])*g,-2.5,2.5); } }
+    else perturbField(dv,0.13*(0.3+rf)*rate);
+    if(ty===3 && t-P.lastWave>0.5){ P.lastWave=t; actionTriggerWave(dv.x,dv.y); }
+    firstSight(dv,t);
+    break; }
+
+  case 'makers': {                                     // sort into species by manufacturer; randomized = ghosts
+    const ghost=dv.randomized;
+    dv.ema=Math.min(dv.ema+(ghost?0.14:0.32)*(0.3+rf),3);
+    perturbField(dv, (ghost?0.05:0.12)*(0.3+rf)*rate);
+    if(ty===2 && peerDv) addLink(dv,peerDv,0.35,'data');
+    if(firstSight(dv,t) && feed) feed((ghost?'👻 randomized':'🏷 '+dv.vendor),dv);
+    break; }
+
+  case 'room': {                                       // placed in the physical room by signal across receivers
+    updatePos(dv); dv.ema=Math.min(dv.ema+0.3*(0.3+rf),3);
+    perturbField(dv,0.11*(0.3+rf)*rate);
+    if(ty===3 && t-P.lastWave>0.4){ P.lastWave=t; actionTriggerWave(dv.px,dv.py); }
+    firstSight(dv,t);
+    break; }
+
+  case 'presence': {                                   // the organism leans toward whoever is near
+    const prox=Math.pow(rf,2.2);                        // strong non-linearity: close dominates, far ignored
+    const tw=[0.3,2.2,1.0,2.0,0.5,0.2][ty]||1.0;
+    const w=tw*(0.08+2.6*prox)*clamp(len/500,0.2,2)*rate;
+    dv.ema=Math.min(dv.ema+w*0.7,3.5); perturbField(dv,0.16*w);
+    if(rssi>P.closeRssi-3){ P.closeRssi=rssi; P.closeIdx=dv; P.closeT=t; }
+    if(ty===1){ if(t-P.lastSpawn>0.25){ P.lastSpawn=t; actionSpawnParticles(2,dv.x,dv.y); } perturbField(dv,0.10*prox); if(feed)feed('✧ someone searching',dv); }
+    else if(ty===3){ if(t-P.lastWave>0.4){ P.lastWave=t; actionTriggerWave(dv.x,dv.y); } if(feed)feed('〰 deauth',dv); }
+    else if(!firstSight(dv,t) && feed && prox>0.4) feed('· '+Math.round(rssi)+' dBm',dv);
+    break; }
+
+  case 'constellation': {                              // beacons are stars; traffic weaves constellations
+    perturbField(dv,0.05*(0.3+rf)*rate);                // dim nebula underneath
+    if(ty===0){ dv.isAP=true; dv.star=Math.min((dv.star||0)+0.5,3.5); dv.ema=Math.min(dv.ema+0.28*(0.4+rf),4);
+      if(dv.ssid) P.ssidAP.set(dv.ssid,dv); }
+    else dv.ema=Math.min(dv.ema+0.12*(0.4+rf),3);
+    if(ty===1 && dv.ssid){ const ap=P.ssidAP.get(dv.ssid);
+      if(ap){ ap.star=Math.min((ap.star||0)+0.6,4); addLink(dv,ap,0.6,'seek'); if(feed)feed('✧ seeking "'+dv.ssid+'"',ap); } }
+    else if(ty===2 && peerDv){ addLink(dv,peerDv,0.5,'data'); }
+    else if(ty===3){ shootStar(dv,t); if(feed)feed('☄ deauth',dv); }
+    firstSight(dv,t);
+    break; }
+
+  case 'spectrum': {                                   // Wi-Fi channels become colored lanes
+    const ch=dv.channel||0;
+    perturbField(dv,0.11*(0.3+rf)*rate); dv.ema=Math.min(dv.ema+0.4*(0.4+rf),3);
+    if(ch>=1&&ch<=14) P.chan[ch]=clamp(P.chan[ch]+0.12,0,4);
+    if(ty===3 && t-P.lastWave>0.5){ P.lastWave=t; actionTriggerWave(dv.x,chanBandY(ch)); if(feed)feed('〰 deauth · ch'+(ch||'?'),dv); }
+    else if(ty===1 && t-P.lastSpawn>0.5){ P.lastSpawn=t; actionSpawnParticles(2,dv.x,chanBandY(ch)); }
+    firstSight(dv,t);
+    break; }
+
+  case 'pulse': {                                      // the organism beats with the room's traffic
+    const tw=[0.2,1.0,1.2,2.5,0.5,0.2][ty]||1.0;
+    const w=tw*(0.3+rf)*rate;
+    dv.ema=Math.min(dv.ema+w*0.4,3); perturbField(dv,0.10*w);
+    P.pressure += w*0.05 + (ty===3?0.7:0);              // deauths land as heavy beats
+    if(ty===3 && feed) feed('✖ deauth',dv);
+    firstSight(dv,t);
+    break; }
+
+  default: {                                           // 'currents' — data flows as currents (evolves the original)
+    const tw=[0.15,1.5,1.0,2.5,0.7,0.3][ty]||1.0;
+    const w=tw*(0.4+1.2*rf)*clamp(len/500,0.15,2)*rate;
+    dv.ema=Math.min(dv.ema+w*0.5,3); perturbField(dv,0.13*w);
+    if(ty===3){ if(t-P.lastWave>0.5){ P.lastWave=t; actionTriggerWave(dv.x,dv.y); } if(feed)feed('〰 deauth',dv); }
+    else if(ty===1){ if(t-P.lastSpawn>0.4){ P.lastSpawn=t; actionSpawnParticles(2,dv.x,dv.y); } if(feed)feed('✧ probe',dv); }
+    else if(firstSight(dv,t)){ if(feed)feed('✦ new device',dv); }
+    else if(ty===2 && len>400){                         // data burst → current toward the talker
+      if(peerDv) addLink(dv,peerDv,0.3,'data');
+      P.pushT=t;
+      const dx=dv.x-curActionX, dy=dv.y-curActionY, m=Math.hypot(dx,dy)||1;
+      const s=clamp(len/1500,0.25,1);
+      P.pushX=dx/m*s; P.pushY=dy/m*s;
+    }
+  }}
+}
+
+// per-frame mode maintenance: transient decay, heartbeat, presence release
+function modeTick(devs,active,t){
+  if(P.mode==='spectrum'){ for(let c=1;c<=14;c++) P.chan[c]*=0.99; }
+  else if(P.mode==='pulse'){
+    P.pressure*=0.96;
+    if(active && P.pressure>1.2 && t-P.lastBeat>0.5){
+      P.lastBeat=t; P.pressure=0; const c=centroid(devs); actionTriggerWave(c.x,c.y); P.beatFlash=performance.now();
+    }
+    P.breath=0.5+0.5*Math.sin((t-P.lastBeat)*3.2);
   }
+  else if(P.mode==='presence'){ P.closeRssi-=0.4; if(t-P.closeT>2.5) P.closeIdx=null; }
+  else if(P.mode==='jammer'){ P.jam*=0.97; }            // attack intensity fades when the flood stops
+  else if(P.mode==='airtime'){ for(const dv of devs) dv.airtime*=0.985; }  // recent-airtime window
+  else if(P.mode==='room'){ for(const dv of devs) if(dv.ema>0.03) updatePos(dv); }
+}
+
+function setMode(id){
+  const m=ART_MODES.find(x=>x.id===id); if(!m) return;
+  P.mode=id; colorModeType=m.color; uiDirty=true;
+  P.links.length=0; P.shooting.length=0; P.pressure=0; P.beatFlash=0; P.jam=0;
+  P.closeIdx=null; P.closeRssi=-999; P.chan.fill(0);
+  document.querySelectorAll('.modebtn').forEach(b=>b.classList.toggle('on', b.dataset.mode===id));
+  $('modeName').textContent=m.name + (m.rig?' — needs 3-adapter rig (or Demo)':'');
+  try{ localStorage.setItem('motoko_mode',id); }catch(e){}
+  updateCaption();
+  toast(m.icon+' '+m.name);
+}
+// short, hideable rules caption shown while a packet source is driving the art
+function updateCaption(){
+  const m=ART_MODES.find(x=>x.id===P.mode);
+  const active = (P.data||P.live) && !capHidden && m;
+  const cap=$('modeCap');
+  if(active){ $('modeCapText').innerHTML='<b>'+m.icon+' '+m.name+'</b> — '+m.desc; cap.style.display='flex'; }
+  else cap.style.display='none';
+}
+// switch to the next/prev visible (non-hidden) mode — handy in clean view
+function cycleMode(dir){
+  const vis=ART_MODES.filter(m=>!HIDDEN.has(m.id)); if(!vis.length) return;
+  let i=vis.findIndex(m=>m.id===P.mode); i=(i+dir+vis.length)%vis.length; setMode(vis[i].id);
+}
+function toggleClean(){ const on=!document.body.classList.contains('clean'); document.body.classList.toggle('clean',on);
+  $('cleanBtn').classList.toggle('on',on); if(on) toast('menu hidden — press H to bring it back'); }
+
+function processPacket(i){
+  const d=P.data, t=getTime();
+  const pi=d.peer?d.peer[i]:0xFFFF;
+  PK.ty=d.typ[i]; PK.rssi=d.rssi[i]; PK.len=d.len[i];
+  PK.seq=d.seq?d.seq[i]:0; PK.dur=d.dur?d.dur[i]:0; PK.ac=d.ac?d.ac[i]:-1; PK.bcast=d.bcast?!!d.bcast[i]:false;
+  PK.peer=(pi!==0xFFFF && d.devices[pi])?d.devices[pi]:null; PK.rx=0;
+  dispatchPacket(d.devices[d.dev[i]], PK, t, pcapFeed);
 }
 
 function pcapTick(){
@@ -1476,12 +1954,16 @@ function pcapTick(){
   P.pktRateEMA+=(pktsThis*60-P.pktRateEMA)*0.03;
   for(let j=0;j<PARAMS_DIM;j++){ P.f0[j]*=0.97; P.f1[j]*=0.97; }
   for(const dv of devs) dv.ema*=0.95;
-  // autopilot: pen drifts to the loudest device while the mouse is idle
   const active = P.live || P.playing;
+  modeTick(devs, active, getTime());
+  // autopilot: where the pen drifts depends on the mode
   if(active&&P.follow&&performance.now()-P.lastMouse>2000){
-    let best=null;
-    for(const dv of devs) if(dv.ema>0.05&&(!best||dv.ema>best.ema)) best=dv;
-    if(best){ curActionX+=(best.x-curActionX)*0.04; curActionY+=(best.y-curActionY)*0.04; }
+    let tx=null, ty2=null;
+    if(P.mode==='presence' && P.closeIdx){ tx=P.closeIdx.x; ty2=P.closeIdx.y; }
+    else if(P.mode==='room'){ let best=null; for(const dv of devs) if(dv.ema>0.05&&(!best||dv.ema>best.ema)) best=dv; if(best){ tx=best.px; ty2=best.py; } }
+    else if(P.mode==='constellation' || P.mode==='pulse'){ const c=centroid(devs); tx=c.x; ty2=c.y; }
+    else { let best=null; for(const dv of devs) if(dv.ema>0.05&&(!best||dv.ema>best.ema)) best=dv; if(best){ tx=best.x; ty2=best.y; } }
+    if(tx!==null){ const gain=P.mode==='presence'?0.09:0.04; curActionX+=(tx-curActionX)*gain; curActionY+=(ty2-curActionY)*gain; }
   }
   pcapPushing=active&&(getTime()-P.pushT<0.25);
   if(pcapPushing&&!dragPushing&&!padPushing){ mbTargetX=P.pushX; mbTargetY=P.pushY; }
@@ -1490,7 +1972,8 @@ function pcapTick(){
 
 function applyPcapEntropy(pen,bg){
   if(!P.data && !P.live) return;
-  const g=P.influence*0.55;
+  let g=P.influence*0.55;
+  if(P.mode==='pulse') g*=0.55+0.9*P.breath;           // the whole field breathes with the beat
   if(g<=0) return;
   for(let j=0;j<PARAMS_DIM;j++){
     pen[j]*=clamp(Math.exp(g*P.f0[j]),0.55,1.8);      // multiplicative: preserves zeros & scale
@@ -1557,72 +2040,54 @@ addEventListener('pointermove',()=>{ P.lastMouse=performance.now(); });
 /*   exactly as it does to a capture — probe→scatter, deauth→wave,        */
 /*   data-burst→push, new device→ring — but now in real time.            */
 /* ==================================================================== */
-const LIVE={ port:null, reader:null, reading:false, demo:null, buf:new Uint8Array(4096), pos:0, esc:false };
+const LIVE={ ports:[], reading:false, demo:null };   // ports: [{port,reader,buf,pos,esc,rx}] — one per adapter
 
 // live device registry — identical identity model to the PCAP packet sink
 function liveDeviceIdx(key){
   let i=P.liveMap.get(key);
   if(i!==undefined) return i;
   if(P.liveDevices.length>=512){ i=fnv32(key)%P.liveDevices.length; P.liveMap.set(key,i); return i; }
-  i=P.liveDevices.length; P.liveMap.set(key,i);
-  const rng=mulberry32(fnv32(key));
-  const dir0=new Float32Array(PARAMS_DIM), dir1=new Float32Array(PARAMS_DIM);
-  for(let j=0;j<PARAMS_DIM;j++){ dir0[j]=rng()*2-1; dir1[j]=rng()*2-1; }
-  P.liveDevices.push({ mac:key, ssid:null, seen:false, ema:0, hue:Math.floor(rng()*360),
-    x:60+rng()*(SIMW-120), y:60+rng()*(SIMH-120), dir0, dir1 });
+  i=P.liveDevices.length; P.liveMap.set(key,i); P.liveDevices.push(newDevice(key));
   return i;
 }
 function liveFeed(txt,dv){ $('liveFeed').textContent=txt+' · '+dv.mac.slice(-8)+(dv.ssid?' · "'+dv.ssid+'"':''); }
 
 // one parsed packet → perturbation + event (mirror of processPacket, on the live registry)
-function liveProcess(ty,key,ssid,rssi,len){
-  if(!P.live) return;
-  const dv=P.liveDevices[liveDeviceIdx(key||'unknown')];
-  if(ssid && ssid!=='<HIDDEN>' && ssid!=='<UNKNOWN>' && !dv.ssid) dv.ssid=ssid;
-  const t=getTime();
-  const rf=rssi>-127 ? map(clamp(rssi,-90,-30),-90,-30,0.4,1.6) : 1.0;
-  const tw=[0.15,1.5,1.0,2.5,0.7,0.3][ty]||1.0;
-  let w=tw*rf*clamp(len/500,0.15,2);
-  w*=1/(1+P.pktRateEMA/40);                            // normalize by traffic rate
-  dv.ema=Math.min(dv.ema+w*0.5,3);
-  const g=0.13*w;
-  for(let j=0;j<PARAMS_DIM;j++){
-    P.f0[j]=clamp(P.f0[j]+dv.dir0[j]*g,-2.5,2.5);
-    P.f1[j]=clamp(P.f1[j]+dv.dir1[j]*g,-2.5,2.5);
-  }
-  if(ty===3 && t-P.lastWave>0.5){ P.lastWave=t; actionTriggerWave(dv.x,dv.y); liveFeed('〰 deauth',dv); }
-  else if(ty===1 && t-P.lastSpawn>0.4){ P.lastSpawn=t; actionSpawnParticles(2,dv.x,dv.y); liveFeed('✧ probe',dv); }
-  else if(!dv.seen){ dv.seen=true;
-    if(t-P.lastSpawn>0.4){ P.lastSpawn=t; actionSpawnParticles(1,dv.x,dv.y); }
-    liveFeed('✦ new device',dv);
-  }
-  else if(ty===2 && len>400){                          // data burst → push swarm toward the talker
-    P.pushT=t;
-    const dx=dv.x-curActionX, dy=dv.y-curActionY, m=Math.hypot(dx,dy)||1;
-    const s=clamp(len/1500,0.25,1);
-    P.pushX=dx/m*s; P.pushY=dy/m*s;
-  }
+// info = a parse80211-shaped object (from hardware or synthesized by Demo); rx = which receiver heard it (0-2)
+function liveIngest(info,rssi,len,rx){
+  if(!P.live || !info || info.key==null) return;
+  const dv=P.liveDevices[liveDeviceIdx(info.key)];
+  if(info.ssid && info.ssid!=='<HIDDEN>' && info.ssid!=='<UNKNOWN>' && !dv.ssid) dv.ssid=info.ssid;
+  if(info.channel) dv.channel=info.channel;
+  if(info.type===0) dv.isAP=true;
+  updateRhythm(dv,getTime());
+  PK.ty=info.type; PK.rssi=rssi; PK.len=len; PK.seq=info.seq||0; PK.dur=info.dur||0;
+  PK.ac=(info.ac==null?-1:info.ac); PK.bcast=!!info.bcast; PK.rx=rx|0;
+  PK.peer = info.peer ? P.liveDevices[liveDeviceIdx(info.peer)] : null;
+  dispatchPacket(dv, PK, getTime(), liveFeed);         // same choreography as PCAP
   P.liveN++;
 }
 
 // Motoko firmware SLIP frame: [0]=0x03 PKT_RECV, [1]=rssi(dBm), [11]=chan nibble, [13..]=802.11
-function liveOnFrame(f,n){
+function liveOnFrame(f,n,rx){
   if(n<14 || f[0]!==0x03) return;
   const rssi=f[1]>127?f[1]-256:f[1];
+  const rxChan=f[11]&0x0f;                              // channel the receiver was tuned to
   const info=parse80211(f,13,n);                       // reuse the site's own 802.11 dissector
   if(!info || info.key===null) return;
-  liveProcess(info.type, info.key, info.ssid, rssi, n-13);
+  if(!info.channel) info.channel=rxChan;
+  liveIngest(info, rssi, n-13, rx||0);
 }
-// SLIP (RFC 1055) deframer over the incoming serial byte stream — receive only
+// SLIP (RFC 1055) deframer, per adapter — receive only
 const SL_END=0xc0, SL_ESC=0xdb, SL_ESC_END=0xdc, SL_ESC_ESC=0xdd;
-function liveSlipPush(bytes){
+function slipPush(a,bytes){                             // a = adapter {buf,pos,esc,rx}
   for(let i=0;i<bytes.length;i++){
     const b=bytes[i];
-    if(b===SL_END){ if(LIVE.pos>0){ liveOnFrame(LIVE.buf,LIVE.pos); LIVE.pos=0; } }
-    else if(b===SL_ESC){ LIVE.esc=true; }
-    else if(LIVE.esc){ if(b===SL_ESC_END) LIVE.buf[LIVE.pos++]=SL_END; else if(b===SL_ESC_ESC) LIVE.buf[LIVE.pos++]=SL_ESC; LIVE.esc=false; }
-    else LIVE.buf[LIVE.pos++]=b;
-    if(LIVE.pos>=LIVE.buf.length) LIVE.pos=0;           // overflow guard
+    if(b===SL_END){ if(a.pos>0){ liveOnFrame(a.buf,a.pos,a.rx); a.pos=0; } }
+    else if(b===SL_ESC){ a.esc=true; }
+    else if(a.esc){ if(b===SL_ESC_END) a.buf[a.pos++]=SL_END; else if(b===SL_ESC_ESC) a.buf[a.pos++]=SL_ESC; a.esc=false; }
+    else a.buf[a.pos++]=b;
+    if(a.pos>=a.buf.length) a.pos=0;                    // overflow guard
   }
 }
 
@@ -1633,54 +2098,108 @@ function liveEnter(label){
   $('liveCtrls').style.display='block';
   $('liveName').textContent=label;
   $('liveFollow').classList.toggle('on',P.follow);
+  updateCaption();
+}
+async function sendCmd(a,type,payload){                // SLIP-encode a receiver-tuning command (RX only, no TX of 802.11)
+  if(!a.port || !a.port.writable) return;
+  try{ const w=a.port.writable.getWriter(); const out=[SL_END];
+    for(const b of [type,...payload]){ if(b===SL_END)out.push(SL_ESC,SL_ESC_END); else if(b===SL_ESC)out.push(SL_ESC,SL_ESC_ESC); else out.push(b&0xff); }
+    out.push(SL_END); await w.write(new Uint8Array(out)); w.releaseLock();
+  }catch(e){}
+}
+async function openAdapter(rx,parkChannel){
+  const port=await navigator.serial.requestPort();
+  await port.open({ baudRate:1000000 });
+  const a={ port, reader:null, buf:new Uint8Array(4096), pos:0, esc:false, rx };
+  LIVE.ports.push(a);
+  if(parkChannel) sendCmd(a,0x01,[parkChannel]);       // TYPE_CH_SWITCH — park this receiver on one channel
+  adapterReadLoop(a);
+  return a;
+}
+async function adapterReadLoop(a){
+  while(a.port && a.port.readable && LIVE.reading){
+    a.reader=a.port.readable.getReader();
+    try{ for(;;){ const {value,done}=await a.reader.read(); if(done) break; if(value) slipPush(a,value); } }
+    catch(e){ /* transient — re-acquire */ }
+    finally{ try{ a.reader.releaseLock(); }catch(e){} }
+  }
 }
 async function liveConnect(){
   if(!('serial' in navigator)){ toast('⚠ Web Serial needs Chrome / Edge / Brave over HTTPS'); return; }
   try{
-    liveStopDemo();
-    LIVE.port=await navigator.serial.requestPort();
-    await LIVE.port.open({ baudRate:1000000 });
-    LIVE.reading=true;
+    liveStopDemo(); LIVE.reading=true;
+    await openAdapter(0,0);
+    P.rxN=1;
     liveEnter('🛰 receiver linked · live');
     toast('🛰 receiver linked — listening to the air');
-    liveReadLoop();
-  }catch(e){ toast('⚠ connection cancelled or failed'); }
+  }catch(e){ LIVE.reading=false; toast('⚠ connection cancelled or failed'); }
 }
-async function liveReadLoop(){
-  while(LIVE.port && LIVE.port.readable && LIVE.reading){
-    LIVE.reader=LIVE.port.readable.getReader();
-    try{
-      for(;;){ const {value,done}=await LIVE.reader.read(); if(done) break; if(value) liveSlipPush(value); }
-    }catch(e){ /* transient read error — loop re-acquires the reader */ }
-    finally{ try{ LIVE.reader.releaseLock(); }catch(e){} }
+// Three receivers → no channel-hopping. Default: park on 1/6/11 for continuous full-band coverage.
+async function liveConnect3(){
+  if(!('serial' in navigator)){ toast('⚠ Web Serial needs Chrome / Edge / Brave over HTTPS'); return; }
+  liveStopDemo(); LIVE.reading=true;
+  const CH=[1,6,11];
+  try{
+    for(let k=0;k<3;k++){ toast('pick receiver '+(k+1)+' / 3  (channel '+CH[k]+')'); await openAdapter(k,CH[k]); }
+    P.rxN=3; liveEnter('🛰×3 · ch 1/6/11 · no scanning'); toast('🛰×3 linked — full band, continuous');
+  }catch(e){
+    P.rxN=Math.max(LIVE.ports.length,1);
+    if(LIVE.ports.length){ liveEnter('🛰×'+LIVE.ports.length+' linked · live'); toast('linked '+LIVE.ports.length+' receiver(s)'); }
+    else { LIVE.reading=false; toast('⚠ connection cancelled'); }
   }
 }
 async function liveDisconnect(){
   LIVE.reading=false;
-  try{ if(LIVE.reader) await LIVE.reader.cancel(); }catch(e){}
-  try{ if(LIVE.port) await LIVE.port.close(); }catch(e){}
-  LIVE.port=null; LIVE.reader=null;
+  for(const a of LIVE.ports){ try{ if(a.reader) await a.reader.cancel(); }catch(e){} try{ await a.port.close(); }catch(e){} }
+  LIVE.ports=[]; P.rxN=1;
 }
 
-/* Demo mode: believable synthetic RF so live mode runs with no hardware (rehearsal) */
+/* Demo mode: believable synthetic RF so every mode runs with no hardware (rehearsal).
+   Simulates a 3-receiver rig, so Room of Bodies works too. */
 function liveStartDemo(){
   if(LIVE.demo) return;
-  liveEnter('demo · synthetic packets');
-  const rnd=mulberry32(0xc0ffee);
-  const rMac=()=>Array.from({length:6},()=>((rnd()*256)|0).toString(16).padStart(2,'0')).join(':');
+  liveEnter('demo · synthetic packets (3-rx rig simulated)');
+  P.rxN=3;
+  const rnd=mulberry32(0xc0ffee); let seq=0, tick=0;
+  const rMac=v=>Array.from({length:6},(_,i)=>(((v*2654435761>>>(i*4))&0xff)).toString(16).padStart(2,'0')).join(':');
+  const rMacR=()=>{ const b=Array.from({length:6},()=>(rnd()*256)|0); b[0]=(b[0]&0xfe)|0x02; return b.map(x=>x.toString(16).padStart(2,'0')).join(':'); }; // locally-administered = "randomized"
   const ssids=['Skynet','Pretty Fly for a WiFi','FBI Surveillance Van','Lab_5G','NETGEAR-Guest','linksys','MI6-Bakery','motoko-net','Tell My WiFi Love Her'];
-  const aps=Array.from({length:9},(_,i)=>({ ssid:ssids[i], mac:rMac(), rssi:-35-((rnd()*55)|0) }));
-  const probeSsids=['iPhone_of_Kody','Starbucks','HomeNet','attwifi','eduroam','Boeing_Guest','Marriott_LOBBY','AndroidAP',''];
-  const clients=Array.from({length:12},()=>rMac());
+  const chans=[1,6,11,1,6,11,3,9,13];
+  // give some APs recognizable vendor OUIs so Maker's Marks has species
+  const vps=['b8:27:eb','3c:5a:b4','a4:cf:12','50:c7:bf','00:18:0a','f0:81:73','8c:aa:b5','24:6f:28','ec:08:6b'];
+  const aps=Array.from({length:9},(_,i)=>({ ssid:ssids[i], mac:vps[i]+':'+rMac(i+7).slice(0,8), channel:chans[i], rssi:-35-((rnd()*55)|0),
+    tx:SIMW*(0.15+0.7*rnd()), ty:SIMH*(0.15+0.7*rnd()) }));
+  // clients: mix of real-vendor and randomized MACs; each has a wandering true position and a current AP
+  const clients=Array.from({length:14},(_,i)=>({ mac: i<9 ? (['3c:15:c2','5c:0a:5b','dc:a6:32','a0:88:b4','44:65:0d','8c:85:90','34:23:ba','7c:b0:c2','f4:f5:e8'][i]+':'+rMac(i+40).slice(0,8)) : rMacR(),
+    tx:SIMW*rnd(), ty:SIMH*rnd(), vx:0, vy:0, ap:aps[(rnd()*aps.length)|0], periodic: i%4===0 }));
+  const probeSsids=['iPhone_of_Kody','Starbucks','motoko-net','Lab_5G','eduroam','NETGEAR-Guest','Marriott_LOBBY','linksys',''];
   const jit=v=>Math.max(-95,Math.min(-30,v+((rnd()*8)|0)-4));
+  // feed one synthesized frame; for spatial modes, feed it to all 3 receivers with distance-based RSSI
+  function emit(info,base,len,tx,ty){
+    if(P.mode==='room' && tx!=null){
+      for(let k=0;k<3;k++){ const d=Math.hypot(RX_ANCHORS[k].x-tx,RX_ANCHORS[k].y-ty); liveIngest(info,clamp(-28-d/11,-95,-28),len,k); }
+    } else liveIngest(info,base,len,0);
+  }
   LIVE.demo=setInterval(()=>{
     if(!P.live) return;
+    tick++;
+    // drift client positions (so bodies move in Room of Bodies)
+    for(const c of clients){ c.vx+=(rnd()-0.5)*6-c.vx*0.1; c.vy+=(rnd()-0.5)*6-c.vy*0.1;
+      c.tx=clamp(c.tx+c.vx,0,SIMW); c.ty=clamp(c.ty+c.vy,0,SIMH);
+      if(rnd()<0.002) c.ap=aps[(rnd()*aps.length)|0]; }   // occasional roam → new AP
     const roll=rnd();
-    if(roll<0.45){ const ap=aps[(rnd()*aps.length)|0]; liveProcess(0,ap.mac,ap.ssid,jit(ap.rssi),140+((rnd()*180)|0)); }
-    else if(roll<0.72){ liveProcess(1,clients[(rnd()*clients.length)|0],probeSsids[(rnd()*probeSsids.length)|0]||null,-50-((rnd()*45)|0),90+((rnd()*40)|0)); }
-    else if(roll<0.97){ liveProcess(2,clients[(rnd()*clients.length)|0],null,-45-((rnd()*45)|0),120+((rnd()*1200)|0)); }
-    else { const ap=aps[(rnd()*aps.length)|0], src=clients[(rnd()*clients.length)|0];
-      for(let i=0;i<6;i++) liveProcess(3,src,ap.ssid,jit(ap.rssi),26); }
+    if(roll<0.42){ const ap=aps[(rnd()*aps.length)|0];
+      emit({type:0,key:ap.mac,ssid:ap.ssid,channel:ap.channel,peer:null,seq:(seq++&4095),dur:0,ac:-1,bcast:false}, jit(ap.rssi),150+((rnd()*180)|0), ap.tx,ap.ty); }
+    else if(roll<0.66){ const c=clients[(rnd()*clients.length)|0];
+      emit({type:1,key:c.mac,ssid:probeSsids[(rnd()*probeSsids.length)|0]||null,channel:0,peer:null,seq:(seq++&4095),dur:0,ac:-1,bcast:false}, -50-((rnd()*40)|0),90+((rnd()*40)|0), c.tx,c.ty); }
+    else if(roll<0.95){ const c=clients[(rnd()*clients.length)|0];
+      // periodic clients emit tightly-timed frames (metronomes); QoS class varies; NAV ∝ size
+      const big=rnd()<0.3, len=big?(700+((rnd()*1300)|0)):(80+((rnd()*200)|0));
+      const ac=[ -1,-1,1,1,3,2,0 ][(rnd()*7)|0];
+      if(c.periodic && (tick%3)!==0) return;              // machines: regular cadence
+      emit({type:2,key:c.mac,ssid:null,channel:c.ap.channel,peer:c.ap.mac,seq:(seq++&4095),dur:big?(400+((rnd()*2400)|0)):((rnd()*200)|0),ac:ac,bcast:false}, -42-((rnd()*45)|0),len, c.tx,c.ty); }
+    else { const ap=aps[(rnd()*aps.length)|0], c=clients[(rnd()*clients.length)|0], flood=rnd()<0.5;
+      for(let i=0;i<(flood?8:2);i++) emit({type:3,key:c.mac,ssid:ap.ssid,channel:ap.channel,peer:ap.mac,seq:(seq++&4095),dur:0,ac:-1,bcast:flood}, jit(ap.rssi),26, c.tx,c.ty); }
   },60);
 }
 function liveStopDemo(){ if(LIVE.demo){ clearInterval(LIVE.demo); LIVE.demo=null; } }
@@ -1691,19 +2210,85 @@ function liveStop(quiet){
   P.live=false;
   $('liveCtrls').style.display='none';
   $('liveName').textContent='live 802.11 → organism';
+  updateCaption();
   if(!quiet) toast('live stopped');
 }
 
+// mode selector — icon buttons from ART_MODES; ✎ enters curate mode to hide/show modes (persisted)
+function buildModeRow(){
+  const row=$('modeRow'); row.innerHTML='';
+  for(const m of ART_MODES){
+    const hid=HIDDEN.has(m.id);
+    if(hid && !curating) continue;                     // hidden modes vanish unless curating
+    const b=document.createElement('button');
+    b.className='btn modebtn'+(m.id===P.mode?' on':'')+(hid?' hid':'');
+    b.dataset.mode=m.id; b.textContent=m.icon;
+    b.title=(curating?(hid?'click to SHOW · ':'click to HIDE · '):'')+m.name+(m.rig?' — needs the 3-adapter rig (or Demo)':'');
+    b.addEventListener('click',()=>{
+      if(curating){ if(hid) HIDDEN.delete(m.id); else HIDDEN.add(m.id); saveHidden(); buildModeRow(); }
+      else setMode(m.id);
+    });
+    row.appendChild(b);
+  }
+  const c=document.createElement('button');
+  c.className='btn'+(curating?' on':''); c.textContent='✎'; c.style.marginLeft='4px';
+  c.title='curate — hide/show modes (persists)';
+  c.addEventListener('click',()=>{ curating=!curating; buildModeRow(); toast(curating?'✎ curate: click a mode to hide/show it':'curate off — hidden modes tucked away'); });
+  row.appendChild(c);
+}
+buildModeRow();
+
 // live UI wiring
 $('liveBtn').addEventListener('click',liveConnect);
+$('liveBtn3').addEventListener('click',liveConnect3);
 $('liveDemo').addEventListener('click',()=>{ if(LIVE.demo) liveStop(); else liveStartDemo(); });
 $('liveStop').addEventListener('click',()=>liveStop());
 $('liveFollow').addEventListener('click',()=>{ P.follow=!P.follow; $('liveFollow').classList.toggle('on',P.follow); });
 $('liveInf').addEventListener('input',e=>{ P.influence=e.target.value/100; });
+$('cleanBtn').addEventListener('click',toggleClean);
+$('modeCapX').addEventListener('click',()=>{ capHidden=true; updateCaption(); });
+
+/* ---- firmware installer: writes the (transmit-capable) radio-pipe firmware via esptool-js + Web Serial ---- */
+function flog(m){ const el=$('flashLog'); if(el){ el.textContent+=m+'\n'; el.scrollTop=el.scrollHeight; } }
+async function flashFirmware(){
+  if(!('serial' in navigator)){ flog('Web Serial unavailable — use Chrome / Edge / Brave over HTTPS or localhost.'); return; }
+  if(!window.esptooljs){ flog('esptool-js still loading — wait a second and retry.'); return; }
+  const { ESPLoader, Transport }=window.esptooljs;
+  $('flashGo').disabled=true; let transport;
+  try{
+    flog('Fetching firmware…');
+    const resp=await fetch('firmware/motoko-radio-pipe.bin');
+    if(!resp.ok) throw new Error('firmware not found ('+resp.status+')');
+    const bytes=new Uint8Array(await resp.arrayBuffer());
+    let bin=''; for(let i=0;i<bytes.length;i++) bin+=String.fromCharCode(bytes[i]);
+    const port=await navigator.serial.requestPort();
+    transport=new Transport(port,true);
+    const loader=new ESPLoader({ transport, baudrate:460800, terminal:{ clean(){}, writeLine:flog, write:flog } });
+    flog('Connecting to bootloader…');
+    const chip=await loader.main();
+    flog('Detected: '+chip);
+    flog('Writing '+bytes.length+' bytes @ 0x0…');
+    await loader.writeFlash({ fileArray:[{data:bin,address:0}], flashSize:'keep', flashMode:'keep', flashFreq:'keep',
+      eraseAll:false, compress:true, reportProgress:(_i,w,tot)=>flog('  '+Math.round(w/tot*100)+'%') });
+    try{ if(typeof loader.hardReset==='function') await loader.hardReset();
+      else if(transport.setRTS){ await transport.setRTS(true); await new Promise(r=>setTimeout(r,100)); await transport.setRTS(false); } }
+    catch(_){ flog('   (auto-reset skipped — unplug/replug the board to boot it)'); }
+    flog('✅ Done. Reset the board — it now streams SLIP at 1,000,000 baud.');
+    flog('   Close this, then hit “🛰 connect receiver” to visualize what it hears.');
+  }catch(err){ flog('❌ '+(err&&err.message?err.message:err)); }
+  finally{ try{ if(transport) await transport.disconnect(); }catch(_){ } $('flashGo').disabled=!$('flashAffirm').checked; }
+}
+$('flashBtn').addEventListener('click',()=>{ $('flashModal').style.display='block'; $('flashAffirm').checked=false; $('flashGo').disabled=true; });
+$('flashCancel').addEventListener('click',()=>{ $('flashModal').style.display='none'; });
+$('flashAffirm').addEventListener('change',e=>{ $('flashGo').disabled=!e.target.checked; });
+$('flashGo').addEventListener('click',()=>{ if($('flashAffirm').checked) flashFirmware(); });
+// restore the last mode across reloads (installs reboot); ignore if it was hidden away
+(function(){ try{ const last=localStorage.getItem('motoko_mode'); if(last && ART_MODES.some(m=>m.id===last) && !HIDDEN.has(last)) setMode(last); }catch(e){} })();
 
 // tiny public API (e.g. for piping live captures in from a console/websocket)
 window.physarum={ loadPcapBuffer, pcap:P, setInfluence:v=>{P.influence=clamp(v,0,1);},
-  connectReceiver:liveConnect, startDemo:liveStartDemo, stopLive:()=>liveStop() };
+  connectReceiver:liveConnect, connectRig:liveConnect3, startDemo:liveStartDemo, stopLive:()=>liveStop(),
+  setMode, modes:ART_MODES.map(m=>m.id) };
 
 /* ============================ UI wiring ============================ */
 function toggleHelp(){ const h=$('help'); h.style.display=h.style.display==='block'?'none':'block'; }
