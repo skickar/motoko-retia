@@ -1098,6 +1098,7 @@ function render(){
    searching for) surface as delicate tags that drift up off the device and fade. Nothing else is labelled. */
 const PROBE_LIFE=5.0;
 function pushProbe(text,x,y,t){
+  for(const p of P.probes) if(p.text===text) return;    // one tag per network name at a time — no stacking/smear
   if(t-P.lastProbe<0.18) return;                        // keep it sparse & artistic
   P.lastProbe=t; P.probes.push({text,x,y,t});
   if(P.probes.length>28) P.probes.splice(0,P.probes.length-28);
