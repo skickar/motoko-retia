@@ -1094,28 +1094,37 @@ function render(){
 
 /* ============================ overlay (pen ring + HUD) ============================ */
 /* ---- mode-aware overlay layers (drawn on the 2D canvas over the physarum) ---- */
-/* device-name labels — bigger, with a hold-and-fade so a name lingers after a device announces itself.
-   The label's lifetime is its OWN timer (labelT), independent of the dot's fast ema fade. */
-const LABEL_HOLD=6.0, LABEL_FADE=1.6;
-function labelPx(u){ return Math.max(13, Math.round(17*u)); }
-function labelFade(dv){ const dt=getTime()-(dv.labelT||-9); return dt<LABEL_HOLD ? clamp((LABEL_HOLD-dt)/LABEL_FADE,0,1) : 0; }
-function drawLabel(text,x,y,px,alpha){
-  octx.font='600 '+px+'px ui-monospace,monospace';
-  octx.fillStyle='rgba(0,0,0,'+(0.62*alpha).toFixed(3)+')'; octx.fillText(text,x+1.3,y+1.3);   // shadow → legible on the busy organism
-  octx.fillStyle='rgba(255,255,255,'+(0.94*alpha).toFixed(3)+')'; octx.fillText(text,x,y);
+/* Datacore annotations — the ONLY text layer. Probe requests (the networks a device is quietly
+   searching for) surface as delicate tags that drift up off the device and fade. Nothing else is labelled. */
+const PROBE_LIFE=5.0;
+function pushProbe(text,x,y,t){
+  if(t-P.lastProbe<0.18) return;                        // keep it sparse & artistic
+  P.lastProbe=t; P.probes.push({text,x,y,t});
+  if(P.probes.length>28) P.probes.splice(0,P.probes.length-28);
+}
+function drawProbes(w,h,u){
+  if(!P.probes.length) return;
+  const now=getTime();
+  octx.textAlign='left'; octx.textBaseline='alphabetic'; octx.letterSpacing='0.5px';
+  octx.font=Math.round(12*u)+'px ui-monospace,monospace';
+  for(let i=P.probes.length-1;i>=0;i--){ const p=P.probes[i], age=now-p.t;
+    if(age>PROBE_LIFE){ P.probes.splice(i,1); continue; }
+    const k=age/PROBE_LIFE, al=(k<0.14 ? k/0.14 : 1-(k-0.14)/0.86);   // quick fade-in, slow fade-out
+    const ax=p.x/SIMW*w, ay=p.y/SIMH*h, tx=ax+13*u, ty=ay-11*u-age*9*u; // data drifting upward off the device
+    octx.beginPath(); octx.arc(ax,ay,1.7*u,0,7); octx.fillStyle='rgba(190,225,255,'+(0.35*al).toFixed(3)+')'; octx.fill();       // anchor
+    octx.beginPath(); octx.moveTo(ax,ay); octx.lineTo(tx-3*u,ty+3*u); octx.strokeStyle='rgba(190,225,255,'+(0.20*al).toFixed(3)+')'; octx.lineWidth=1; octx.stroke(); // thin leader
+    octx.fillStyle='rgba(0,0,0,'+(0.28*al).toFixed(3)+')'; octx.fillText(p.text,tx+0.7,ty+0.7);
+    octx.fillStyle='rgba(205,232,255,'+(0.8*al).toFixed(3)+')'; octx.fillText(p.text,tx,ty);
+  }
+  octx.letterSpacing='0px';
 }
 function drawDeviceDots(w,h,u,devs){
   const uu=u*1.4;
   for(const dv of devs){
-    const lf=labelFade(dv);
-    if(dv.ema<=0.04 && lf<=0) continue;                 // skip only when BOTH the dot and its label are gone
-    const dx=dv.x/SIMW*w, dy=dv.y/SIMH*h;
-    if(dv.ema>0.04){                                    // the glowing dot fades fast with activity…
-      const a=Math.min(dv.ema,1.2);
-      octx.beginPath(); octx.arc(dx,dy,(2.5+a*7)*uu,0,7);
-      octx.fillStyle='hsla('+dv.hue+',85%,65%,'+(0.15+0.3*Math.min(a,1)).toFixed(3)+')'; octx.fill();
-    }
-    if(lf>0) drawLabel(dv.ssid||dv.mac.slice(-8), dx+11*u, dy-9*u, labelPx(u), lf);   // …the name lingers on its own timer
+    if(dv.ema<=0.04) continue;
+    const a=Math.min(dv.ema,1.2), dx=dv.x/SIMW*w, dy=dv.y/SIMH*h;
+    octx.beginPath(); octx.arc(dx,dy,(2.5+a*7)*uu,0,7);
+    octx.fillStyle='hsla('+dv.hue+',85%,65%,'+(0.15+0.3*Math.min(a,1)).toFixed(3)+')'; octx.fill();
   }
 }
 function drawLinksOverlay(w,h,u){
@@ -1151,8 +1160,6 @@ function drawStarsOverlay(w,h,u,devs){
       octx.strokeStyle='hsla('+dv.hue+',65%,88%,'+(0.45*a).toFixed(3)+')'; octx.lineWidth=1*u;
       octx.beginPath(); octx.moveTo(dx-g,dy); octx.lineTo(dx+g,dy); octx.moveTo(dx,dy-g); octx.lineTo(dx,dy+g); octx.stroke();
     }
-    const lf=labelFade(dv);
-    if(dv.isAP && dv.ssid && lf>0) drawLabel(dv.ssid, dx+r*2.6+4, dy-2, labelPx(u), lf);
   }
 }
 function drawSpectrumOverlay(w,h,u,devs){
@@ -1174,7 +1181,6 @@ function drawPresenceOverlay(w,h,u){
   if(!P.closeIdx) return; const dv=P.closeIdx;
   const dx=dv.x/SIMW*w, dy=dv.y/SIMH*h, pr=(16+8*Math.sin(getTime()*4))*u;
   octx.beginPath(); octx.arc(dx,dy,pr,0,7); octx.strokeStyle='rgba(255,180,120,0.6)'; octx.lineWidth=1.5*u; octx.stroke();
-  drawLabel('◂ nearest · '+(dv.ssid||dv.mac.slice(-8)), dx+pr+6, dy+4, labelPx(u), 0.95);
 }
 function drawPulseOverlay(w,h,u,devs){
   if(!P.beatFlash) return; const age=(performance.now()-P.beatFlash)/700; if(age>=1) return;
@@ -1197,21 +1203,15 @@ function drawAirtimeOverlay(w,h,u,devs){
     const dx=dv.x/SIMW*w, dy=dv.y/SIMH*h, f=clamp(m/9000,0,1), r=(3+f*26)*u;
     octx.beginPath(); octx.arc(dx,dy,r,0,7);
     octx.fillStyle='hsla('+(210-f*200)+',80%,55%,'+(0.12+0.26*f).toFixed(3)+')'; octx.fill();
-    if(f>0.6) drawLabel(dv.ssid||dv.mac.slice(-8), dx+r+5, dy+4, labelPx(u), Math.min(f,0.95));
   }
 }
 function drawMakersOverlay(w,h,u,devs){
-  for(const dv of devs){
-    const lf=labelFade(dv), vh=vendorHue(dv.vendor);
-    if(dv.ema<=0.05 && lf<=0) continue;
-    const dx=dv.x/SIMW*w, dy=dv.y/SIMH*h, a=Math.min(dv.ema,1.2);
-    if(dv.ema>0.05){
-      if(vh<0){ octx.beginPath(); octx.arc(dx,dy,(2.5+a*6)*u*1.4,0,7);
-        octx.fillStyle=dv.randomized?'rgba(185,195,215,'+(0.08+0.16*a).toFixed(3)+')':'rgba(150,150,160,'+(0.10+0.18*a).toFixed(3)+')'; octx.fill();
-      } else { octx.beginPath(); octx.arc(dx,dy,(2.5+a*7)*u*1.4,0,7);
-        octx.fillStyle='hsla('+vh+',75%,60%,'+(0.18+0.32*a).toFixed(3)+')'; octx.fill(); }
-    }
-    if(vh>=0 && lf>0) drawLabel(dv.vendor, dx+11*u, dy-8*u, labelPx(u), lf);   // vendor name on its own timer
+  for(const dv of devs){ if(dv.ema<=0.05) continue;     // species read by colour (vendor hue), not text
+    const dx=dv.x/SIMW*w, dy=dv.y/SIMH*h, a=Math.min(dv.ema,1.2), vh=vendorHue(dv.vendor);
+    if(vh<0){ octx.beginPath(); octx.arc(dx,dy,(2.5+a*6)*u*1.4,0,7);
+      octx.fillStyle=dv.randomized?'rgba(185,195,215,'+(0.08+0.16*a).toFixed(3)+')':'rgba(150,150,160,'+(0.10+0.18*a).toFixed(3)+')'; octx.fill();
+    } else { octx.beginPath(); octx.arc(dx,dy,(2.5+a*7)*u*1.4,0,7);
+      octx.fillStyle='hsla('+vh+',75%,60%,'+(0.18+0.32*a).toFixed(3)+')'; octx.fill(); }
   }
 }
 function drawMetronomesOverlay(w,h,u,devs){
@@ -1269,6 +1269,7 @@ function drawOverlay(){
   // devices + mode-specific layers (works for both PCAP capture and the live receiver)
   const devs = P.data ? P.data.devices : (P.live ? P.liveDevices : null);
   if(devs) drawModeOverlay(w,h,u,devs);
+  drawProbes(w,h,u);                                    // the datacore probe-request annotations, over every mode
   const now=performance.now();
   for(let i=flashes.length-1;i>=0;i--){
     const f=flashes[i], a=(now-f.t)/500;
@@ -1455,6 +1456,7 @@ const P={ data:null, playing:false, clock:0, idx:0, speed:1, loop:true, follow:t
   live:false, liveDevices:[], liveMap:new Map(), liveN:0,
   // packet-driven art modes + their transient state
   mode:'currents', links:[], shooting:[], chan:new Float32Array(15), ssidAP:new Map(), lastLink:-9,
+  probes:[], lastProbe:-9,
   pressure:0, lastBeat:-9, breath:0, beatFlash:0, closeIdx:null, closeRssi:-999, closeT:-9,
   jam:0, jamT:-9, rxN:1 };
 // reused per-packet scratch — passed to dispatchPacket so the 2000-pkt/frame hot path allocates nothing
@@ -1787,7 +1789,10 @@ function dispatchPacket(dv,pk,t,feed){
   const ty=pk.ty, rssi=pk.rssi, len=pk.len, peerDv=pk.peer;   // read scratch → locals (no allocation)
   const rf = rssi>-127 ? clamp(map(rssi,-90,-30,0,1),0,1) : 0.5;   // 0 = far · 1 = right next to you
   const rate = 1/(1+P.pktRateEMA/40);                              // damp busy air so it never blows up
-  if(ty<=1) dv.labelT=t;                                           // beacon/probe = a device names itself → refresh its label
+  if(ty===1 && dv.ssid){                                          // a probe request — the one thing we annotate
+    const px=P.mode==='room'?dv.px:dv.x, py=P.mode==='spectrum'?chanBandY(dv.channel||7):(P.mode==='room'?dv.py:dv.y);
+    pushProbe(dv.ssid, px, py, t);
+  }
   if(P.rxN>1 || P.mode==='room'){                                  // maintain per-receiver signal for placement
     if(pk.rx>=0 && pk.rx<3) dv.rxRssi[pk.rx]+=(rssi-dv.rxRssi[pk.rx])*0.12;
   }
